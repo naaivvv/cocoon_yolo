@@ -101,7 +101,7 @@ pip install flask opencv-python pyserial ultralytics
 Open `app.py` and change the `COM_PORT` variable to match your Arduino's serial port:
 
 ```python
-# app.py — Line 10
+# app.py — Line 21
 COM_PORT = 'COM3'  # Windows: COM3, COM4, etc.
                    # macOS:   /dev/tty.usbmodem14101
                    # Linux:   /dev/ttyUSB0 or /dev/ttyACM0
@@ -145,7 +145,28 @@ Open your browser and navigate to:
 http://localhost:5000
 ```
 
-Or open `index.html` directly for the full dashboard UI (the webcam feed and API calls will work as long as the Flask server is running on port 5000).
+> **Note:** The dashboard must be accessed via the Flask server URL. Opening `index.html` directly as a file will not work because the video feed and API calls require the Flask backend.
+
+---
+
+## System Logic & Pipeline
+
+### 1. Data Flow (Telemetry Pipeline)
+The system operates in a continuous loop across four layers:
+1.  **Hardware (Arduino)**: Every 500ms, gather states (Motor, Pump, IR) and send as a JSON string via Serial.
+2.  **Backend (Python)**: A background thread reads the Serial stream and updates the `latest_telemetry` object.
+3.  **API (Flask)**: Serves the telemetry object at the `/api/telemetry` endpoint.
+4.  **Frontend (JS)**: Polls the API every 500ms and updates the Dashboard UI (LEDs, Counters, Moisture Dial).
+
+### 2. Counting Logic
+- **`TOTAL_PROCESSED`**: Incremented by the Arduino automatically as soon as **IR Sensor 1** is blocked. This also triggers an automatic stop for the conveyor to allow for sorting.
+- **`GOOD` vs `BAD`**: Incremented via serial commands (`ADD_GOOD` / `ADD_BAD`). Currently, the YOLO model detects and annotates cocoons on the video feed, but the automated classification-to-counter pipeline is not yet wired — a placeholder hook exists in `app.py` (line 82) for future integration. Counters can be incremented manually via a serial terminal.
+
+### 3. Hardware Flow
+- **Conveyor Motor**: Starts/stops via serial commands (`START` / `STOP`). Stops automatically when **IR1** is blocked. The dashboard UI buttons are placeholder hooks (not yet wired to the backend).
+- **Water Pump**: Toggled via serial commands (`PUMP_ON` / `PUMP_OFF`). No dashboard button exists yet — control via serial terminal or future API endpoint.
+- **IR Sensor 1** (Digital): Acts as a "Stop Trigger" — when an object blocks it, the conveyor halts and `totalProcessed` increments.
+- **IR Sensor 2** (Analog): Continuously reads moisture/reflectance (0–1023) and displays the value on the dashboard gauge.
 
 ---
 
@@ -153,7 +174,7 @@ Or open `index.html` directly for the full dashboard UI (the webcam feed and API
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Basic camera feed page |
+| `/` | GET | Full dashboard UI (serves `index.html`) |
 | `/video_feed` | GET | MJPEG webcam stream |
 | `/api/telemetry` | GET | Latest hardware telemetry as JSON |
 
