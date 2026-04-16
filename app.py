@@ -3,9 +3,16 @@ import serial
 import threading
 import json
 import time
-from flask import Flask, render_template, Response, jsonify
+from flask import Flask, render_template, Response, jsonify, send_from_directory
+from ultralytics import YOLO
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='.', static_url_path='')
+
+try:
+    model = YOLO('cocoon_model.pt')
+except Exception as e:
+    print(f"Failed to load cocoon_model.pt: {e}")
+    model = None
 
 # '0' is the standard ID for a built-in laptop webcam
 camera = cv2.VideoCapture(0)
@@ -68,23 +75,26 @@ def generate_frames():
                 start_time = time.time()
                 frames = 0
 
-            ret, buffer = cv2.imencode('.jpg', frame)
-            frame = buffer.tobytes()
+            # YOLO object detection
+            if model is not None:
+                results = model(frame, verbose=False)
+                annotated_frame = results[0].plot()
+                
+                # Optional: You could update good/bad telemetry here based on len(results[0].boxes) 
+                # if you mapped the exact classes. E.g. counting current detected items.
+            else:
+                annotated_frame = frame
+
+            ret, buffer = cv2.imencode('.jpg', annotated_frame)
+            frame_bytes = buffer.tobytes()
 
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
 @app.route('/')
 def index():
-    # Simple placeholder index. Typically JS/HTML handles the dashboard logic
-    return """
-    <html>
-      <body style="background: #222; color: white; text-align: center;">
-        <h1>Laptop Camera Live Feed & Telemetry API Active</h1>
-        <img src="/video_feed" style="border: 5px solid #555; border-radius: 10px; width: 80%;">
-      </body>
-    </html>
-    """
+    # Serve the local index.html as the primary dashboard frontend
+    return app.send_static_file('index.html')
 
 @app.route('/video_feed')
 def video_feed():

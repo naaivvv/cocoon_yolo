@@ -3,7 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- 1. CONFIGURATION & STATE ---
     const POLLING_RATE_MS = 500; // Fetch data twice a second
     const API_ENDPOINT = '/api/telemetry'; // Set to your actual Flask/Arduino route
-    const USE_MOCK_DATA = false; // Set to true to generate UI data internally instead of fetching
+    const USE_MOCK_DATA = true; // Set to true to generate UI data internally instead of fetching
 
     // Uptime variables
     let systemStartTime = Date.now() - (14 * 86400000 + 22 * 3600000 + 8 * 60000 + 45 * 1000); // Mock starting time
@@ -122,7 +122,7 @@ document.addEventListener("DOMContentLoaded", () => {
     async function pollTelemetry() {
         try {
             let data;
-            
+
             if (!USE_MOCK_DATA) {
                 const response = await fetch(API_ENDPOINT);
                 data = await response.json();

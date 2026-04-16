@@ -8,10 +8,11 @@ A real-time IoT sorting machine dashboard powered by YOLOv11 object detection, A
 
 ```
 cocoon_yolo/
-├── app.py                 # Flask backend (webcam feed, serial reader, telemetry API)
+├── app.py                 # Flask backend (webcam feed, YOLO inference, serial, API)
 ├── app.js                 # Frontend polling logic & DOM updaters
 ├── index.html             # Dashboard UI (Tailwind CSS)
 ├── cocoon_yolo.ipynb      # Jupyter notebook (YOLO training/testing)
+├── cocoon_model.pt        # Trained YOLOv11 model file
 ├── firmware/
 │   └── firmware.ino       # Arduino firmware (non-blocking, millis-based)
 └── README.md              # This file
@@ -59,14 +60,15 @@ cd cocoon_yolo
 ### 2. Install Python Dependencies
 
 ```bash
-pip install flask opencv-python pyserial
+pip install flask opencv-python pyserial ultralytics
 ```
 
 | Package | Purpose |
 |---------|---------|
 | `flask` | Web server serving the dashboard and API |
-| `opencv-python` | Webcam capture and MJPEG streaming |
+| `opencv-python` | Webcam capture and image processing |
 | `pyserial` | Serial communication with Arduino |
+| `ultralytics` | YOLOv11 engine for real-time inference |
 
 ### 3. Flash the Arduino Firmware
 
@@ -217,6 +219,8 @@ The Flask backend (or any serial terminal) can send these commands to the Arduin
 | Dashboard shows `CONN_LOST` | Verify the Flask server is running on port 5000 |
 | Arduino serial output is garbled | Confirm baud rate is `115200` in both `firmware.ino` and `app.py` |
 | `cv2` import error | Run `pip install opencv-python` |
+| `Failed to load cocoon_model.pt` | Ensure `cocoon_model.pt` is in the project root directory |
+| Low FPS / Laggy stream | YOLO inference is CPU/GPU intensive; ensure high-performance mode or a dedicated GPU |
 
 ---
 
