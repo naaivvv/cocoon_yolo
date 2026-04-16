@@ -21,11 +21,10 @@ camera = cv2.VideoCapture(0)
 COM_PORT = 'COM3'  # Windows usually uses COM ports
 BAUD_RATE = 115200
 
-# Global variable to store latest serial data
 latest_telemetry = {
     "metrics": {"total": 0, "good": 0, "bad": 0, "fps": "0.0"},
-    "hardware": {"motorA": "STOPPED", "motorB": "STOPPED", "ir1": "CLEAR", "ir2": "CLEAR"},
-    "environment": {"temp": 0.0, "humidity": 0.0, "moisture": 0}
+    "hardware": {"motorA": "STOPPED", "pump": "STOPPED", "ir1": "CLEAR"},
+    "environment": {"moisture": 0}
 }
 serial_connected = False
 arduino = None

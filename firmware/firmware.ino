@@ -146,6 +146,8 @@ void sendTelemetryJSON() {
   // We can format the analog value nicely. 
   // Maybe map it or just send raw. Let's send raw under environment.
   
+  String pumpStatus = pumpRunning ? "RUNNING" : "STOPPED";
+  
   // Construct non-blocking JSON
   Serial.print("{\"metrics\":{");
   Serial.print("\"total\":"); Serial.print(totalProcessed); Serial.print(",");
@@ -153,12 +155,9 @@ void sendTelemetryJSON() {
   Serial.print("\"bad\":"); Serial.print(badProcessed);
   Serial.print("},\"hardware\":{");
   Serial.print("\"motorA\":\""); Serial.print(motorStatus); Serial.print("\",");
-  Serial.print("\"motorB\":\"STOPPED\","); // Assuming mock second motor if needed
-  Serial.print("\"ir1\":\""); Serial.print(ir1Status); Serial.print("\",");
-  Serial.print("\"ir2\":\"CLEAR\""); // Placeholder logic for IR2 status if needed
+  Serial.print("\"pump\":\""); Serial.print(pumpStatus); Serial.print("\",");
+  Serial.print("\"ir1\":\""); Serial.print(ir1Status); Serial.print("\"");
   Serial.print("},\"environment\":{");
-  Serial.print("\"moisture\":"); Serial.print(ir2Value); Serial.print(",");
-  Serial.print("\"temp\":24.5"); // Fixed default or placeholder
-  Serial.print(",\"humidity\":60.0"); // Fixed default or placeholder
+  Serial.print("\"moisture\":"); Serial.print(ir2Value);
   Serial.println("}}");
 }

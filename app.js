@@ -3,7 +3,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- 1. CONFIGURATION & STATE ---
     const POLLING_RATE_MS = 500; // Fetch data twice a second
     const API_ENDPOINT = '/api/telemetry'; // Set to your actual Flask/Arduino route
-    const USE_MOCK_DATA = true; // Set to true to generate UI data internally instead of fetching
 
     // Uptime variables
     let systemStartTime = Date.now() - (14 * 86400000 + 22 * 3600000 + 8 * 60000 + 45 * 1000); // Mock starting time
@@ -123,31 +122,8 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             let data;
 
-            if (!USE_MOCK_DATA) {
-                const response = await fetch(API_ENDPOINT);
-                data = await response.json();
-            } else {
-                // --- MOCK DATA GENERATION FOR TESTING ---
-                data = {
-                    metrics: {
-                        total: 4821 + Math.floor(Math.random() * 5),
-                        good: 4208 + Math.floor(Math.random() * 3),
-                        bad: 613 + Math.floor(Math.random() * 2),
-                        fps: (84.0 + Math.random()).toFixed(1)
-                    },
-                    hardware: {
-                        motorA: systemIsRunning ? "RUNNING" : "STOPPED",
-                        motorB: "STOPPED",
-                        ir1: "CLEAR",
-                        ir2: Math.random() > 0.8 ? "BLOCKED" : "CLEAR" // Randomly block IR 2 for testing
-                    },
-                    environment: {
-                        temp: 24.0 + (Math.random() * 2),     // Range ~24 - 26 C
-                        humidity: 60.0 + (Math.random() * 5),  // Range ~60 - 65 %
-                        moisture: 0
-                    }
-                };
-            }
+            const response = await fetch(API_ENDPOINT);
+            data = await response.json();
 
             // 1. Update Telemetry Counters
             document.getElementById("val-total").textContent = formatNumber(data.metrics.total, 6);
@@ -157,23 +133,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // 2. Update Hardware States
             setHardwareStatus("motor-a", data.hardware.motorA);
-            setHardwareStatus("motor-b", data.hardware.motorB);
+            setHardwareStatus("pump", data.hardware.pump);
             setHardwareStatus("ir-1", data.hardware.ir1);
-            setHardwareStatus("ir-2", data.hardware.ir2);
 
-            // 3. Update Environmental Dials
-            document.getElementById("val-temp").textContent = data.environment.temp.toFixed(1) + "°";
-            document.getElementById("val-humid").textContent = Math.round(data.environment.humidity) + "%";
-
-            // Map Temp (e.g. min 15C to max 45C)
-            setDialRotation("dial-temp", "temp-track", data.environment.temp, 15, 45, "#a3c9ff");
-            // Map Humidity (e.g. min 0% to max 100%)
-            setDialRotation("dial-humid", "humid-track", data.environment.humidity, 0, 100, "#bbffb3");
+            // 3. Update Moisture Dial
+            const moisture = data.environment.moisture;
+            document.getElementById("val-moisture").textContent = moisture;
+            // Map Moisture Analog (0 - 1023)
+            setDialRotation("dial-moisture", "moisture-track", moisture, 0, 1023, "#42a5f5");
 
             // Sync visual feedback
             document.getElementById("sync-indicator").classList.remove("text-error");
             document.getElementById("sync-indicator").classList.add("text-secondary-fixed");
-            document.getElementById("sync-indicator").textContent = USE_MOCK_DATA ? "MOCK_SYNC" : "LIVE_SYNC";
+            document.getElementById("sync-indicator").textContent = "LIVE_SYNC";
 
         } catch (error) {
             console.error("Telemetry fetch failed:", error);
