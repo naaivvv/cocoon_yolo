@@ -39,10 +39,10 @@ cocoon_yolo/
 | **Arduino Uno/Mega** | Microcontroller board |
 | **L298N Motor Driver** | Controls the RC-370 DC conveyor motor |
 | **RC-370 DC Motor** | Conveyor belt drive |
-| **IR Sensor 1** (Digital) | Object detection on the conveyor |
-| **IR Sensor 2** (Analog) | Moisture / reflectance reading |
+| **IR Sensor 1** (Digital) | Sorting sensor (controls conveyor stop/go) |
+| **IR Sensor 2** (Analog) | Moisture sensor (detects wet/dry cocoons) |
 | **2× Servo Motors** | Sorting gate mechanism (Good vs Bad routing) |
-| **HC385XLG 16V Pump** | Water/air pump (via MOSFET or Relay module) |
+| **HC385XLG 16V Pump** | Water/air pump (via MOSFET or Relay) |
 | **USB Cable** | Arduino ↔ Laptop serial connection |
 | **Webcam** | Built-in or USB webcam for YOLO feed |
 
@@ -111,17 +111,8 @@ To find your port:
 - **Windows:** Open Device Manager → Ports (COM & LPT)
 - **macOS/Linux:** Run `ls /dev/tty*` in a terminal
 
-### Toggle Mock Data (Frontend)
-
-Open `app.js` and set the `USE_MOCK_DATA` constant:
-
-```javascript
-// app.js — Line 6
-const USE_MOCK_DATA = false; // true = use generated fake data (no hardware needed)
-                             // false = fetch real data from /api/telemetry
-```
-
-Set to `true` for **UI development without hardware**. Set to `false` for **live production use**.
+### Real-time Telemetry
+The dashboard is now strictly connected to hardware telemetry. Mock data generation has been removed to ensure production accuracy. Ensure the Flask server is running and the Arduino is connected to see live updates.
 
 ---
 
@@ -144,7 +135,7 @@ Successfully connected to Arduino on COM3
  * Running on http://0.0.0.0:5000
 ```
 
-> If the Arduino is not connected, the server will print a warning but **still start** — the webcam feed and mock data will work fine.
+> If the Arduino is not connected, the server will print a warning but **still start** — the webcam feed and YOLO inference will work fine.
 
 ### Step 3: Open the Dashboard
 
@@ -178,13 +169,10 @@ Or open `index.html` directly for the full dashboard UI (the webcam feed and API
   },
   "hardware": {
     "motorA": "RUNNING",
-    "motorB": "STOPPED",
-    "ir1": "CLEAR",
-    "ir2": "CLEAR"
+    "pump": "STOPPED",
+    "ir1": "CLEAR"
   },
   "environment": {
-    "temp": 24.5,
-    "humidity": 60.0,
     "moisture": 512
   }
 }
