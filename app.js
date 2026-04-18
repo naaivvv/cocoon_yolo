@@ -133,7 +133,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // 2. Update Hardware States
             setHardwareStatus("motor-a", data.hardware.motorA);
-            setHardwareStatus("pump", data.hardware.pump);
+            setHardwareStatus("hopper", data.hardware.hopper);
             setHardwareStatus("ir-1", data.hardware.ir1);
 
             // 3. Update Moisture Dial

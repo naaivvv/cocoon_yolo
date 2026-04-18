@@ -36,15 +36,46 @@ cocoon_yolo/
 
 | Component | Description |
 |-----------|-------------|
-| **Arduino Uno/Mega** | Microcontroller board |
-| **L298N Motor Driver** | Controls the RC-370 DC conveyor motor |
-| **RC-370 DC Motor** | Conveyor belt drive |
-| **IR Sensor 1** (Digital) | Sorting sensor (controls conveyor stop/go) |
-| **IR Sensor 2** (Analog) | Moisture sensor (detects wet/dry cocoons) |
-| **2× Servo Motors** | Sorting gate mechanism (Good vs Bad routing) |
-| **HC385XLG 16V Pump** | Water/air pump (via MOSFET or Relay) |
-| **USB Cable** | Arduino ↔ Laptop serial connection |
-| **Webcam** | Built-in or USB webcam for YOLO feed |
+| **SGM37-3530 DC12V 333RPM Gear Motor** | Drives the Conveyor Belt |
+| **RC370 DC Motor 12V** | Drives the Hopper for cocoon feeding |
+| **2× SG90 Servo Motors** | Sorting gate mechanism (Defect vs High Moisture) |
+| **2× IR Sensors** | IR1 (Digital) for Defect trigger, IR2 (Analog) for Moisture |
+| **Buck Converter** | Steps down 12V to 5V for Arduino and Servos |
+| **2× Relay Modules** | Controls the Hopper RC370 DC Motor |
+| **Centralized 12V Power Supply** | Main power for the entire system |
+| **L298N Motor Driver** | Controls the Conveyor Belt Gear Motor |
+| **Arduino Uno** | Main Microcontroller |
+| **HD Computer Camera** | Webcam for YOLO feed and defect detection |
+
+---
+
+## Hardware Schematic Diagram
+
+```mermaid
+graph TD
+    PS[Centralized 12V Power Supply] --> L298N["L298N Motor Driver (12V in)"]
+    PS --> BC["Buck Converter (12V to 5V)"]
+    PS --> Relay["Relay Module (COM port)"]
+    
+    L298N -- "OUT1/OUT2 (12V)" --> Conveyor["SGM37-3530 Gear Motor (Conveyor)"]
+    Relay -- "NO port (12V)" --> Hopper["RC370 DC Motor (Hopper)"]
+    
+    BC -- "5V Power" --> Servo1["SG90 Servo 1 (Defect)"]
+    BC -- "5V Power" --> Servo2["SG90 Servo 2 (Moisture)"]
+    BC -- "5V Power" --> UNO["Arduino Uno (5V/VIN)"]
+    BC -- "5V Power" --> IR1["IR Sensor 1"]
+    BC -- "5V Power" --> IR2["IR Sensor 2"]
+    
+    UNO -- "Pin 3,4,5 (enA, in1, in2)" --> L298N
+    UNO -- "Pin 6" --> Relay
+    UNO -- "Pin 9" --> Servo1
+    UNO -- "Pin 10" --> Servo2
+    UNO -- "Pin 2" --> IR1
+    UNO -- "Pin A0" --> IR2
+    
+    PC["PC / Server"] -- USB --> UNO
+    Camera["HD Computer Camera"] -- USB --> PC
+```
 
 ---
 
@@ -84,7 +115,7 @@ pip install flask opencv-python pyserial ultralytics
 | L298N `ENA` (PWM) | `3` |
 | L298N `IN1` | `4` |
 | L298N `IN2` | `5` |
-| Pump (MOSFET gate) | `6` |
+| Hopper Motor (Relay) | `6` |
 | IR Sensor 1 (Digital) | `2` |
 | IR Sensor 2 (Analog) | `A0` |
 | Servo 1 | `9` |
@@ -153,20 +184,17 @@ http://localhost:5000
 
 ### 1. Data Flow (Telemetry Pipeline)
 The system operates in a continuous loop across four layers:
-1.  **Hardware (Arduino)**: Every 500ms, gather states (Motor, Pump, IR) and send as a JSON string via Serial.
-2.  **Backend (Python)**: A background thread reads the Serial stream and updates the `latest_telemetry` object.
+1.  **Hardware (Arduino)**: Runs a precise state machine (Feeding → Moving to Camera → Waiting for YOLO → Checking Moisture → Sorting/End). Every 500ms, it sends state metrics (Conveyor, Hopper, IR) as a JSON string via Serial.
+2.  **Backend (Python)**: A background thread reads the Serial stream and updates the `latest_telemetry` object. It also processes YOLO frames, and when the Arduino waits at the camera, sends back sorting commands.
 3.  **API (Flask)**: Serves the telemetry object at the `/api/telemetry` endpoint.
 4.  **Frontend (JS)**: Polls the API every 500ms and updates the Dashboard UI (LEDs, Counters, Moisture Dial).
 
-### 2. Counting Logic
-- **`TOTAL_PROCESSED`**: Incremented by the Arduino automatically as soon as **IR Sensor 1** is blocked. This also triggers an automatic stop for the conveyor to allow for sorting.
-- **`GOOD` vs `BAD`**: Incremented via serial commands (`ADD_GOOD` / `ADD_BAD`). Currently, the YOLO model detects and annotates cocoons on the video feed, but the automated classification-to-counter pipeline is not yet wired — a placeholder hook exists in `app.py` (line 82) for future integration. Counters can be incremented manually via a serial terminal.
-
-### 3. Hardware Flow
-- **Conveyor Motor**: Starts/stops via serial commands (`START` / `STOP`). Stops automatically when **IR1** is blocked. The dashboard UI buttons are placeholder hooks (not yet wired to the backend).
-- **Water Pump**: Toggled via serial commands (`PUMP_ON` / `PUMP_OFF`). No dashboard button exists yet — control via serial terminal or future API endpoint.
-- **IR Sensor 1** (Digital): Acts as a "Stop Trigger" — when an object blocks it, the conveyor halts and `totalProcessed` increments.
-- **IR Sensor 2** (Analog): Continuously reads moisture/reflectance (0–1023) and displays the value on the dashboard gauge.
+### 2. State Machine Flow
+- **`IDLE` to `FEEDING`**: The Hopper Motor runs to drop a cocoon onto the belt.
+- **`MOVING_TO_CAM`**: Conveyor runs until IR Sensor 1 detects the cocoon.
+- **`WAITING_CAM_RESULT`**: Conveyor pauses. The Python app analyzes the HD Camera feed using YOLO and sends `DEFECT:YES` or `DEFECT:NO`.
+- **`CHECK_MOISTURE`**: The Conveyor runs to IR Sensor 2 to measure moisture.
+- **`SORTING` / `MOVE_TO_END`**: Servo 1 sweeps bad cocoons, Servo 2 sweeps high-moisture cocoons, and good cocoons drop at the end of the belt. The system continuously tallies `good`, `bad`, and `total` counters automatically.
 
 ---
 
@@ -205,16 +233,14 @@ The system operates in a continuous loop across four layers:
 
 The Flask backend (or any serial terminal) can send these commands to the Arduino:
 
-| Command | Action |
-|---------|--------|
-| `START` | Start the conveyor motor |
-| `STOP` | Stop the conveyor motor |
-| `PUMP_ON` | Activate the water/air pump |
-| `PUMP_OFF` | Deactivate the pump |
-| `SERVO1:90` | Move Servo 1 to 90° (0–180) |
-| `SERVO2:45` | Move Servo 2 to 45° (0–180) |
-| `ADD_GOOD` | Increment the good counter |
-| `ADD_BAD` | Increment the bad counter |
+| Command | Direction | Description |
+|---------|-----------|-------------|
+| `START` | PC → Arduino | Initializes the sorting state machine |
+| `STOP` | PC → Arduino | Stops all motors and returns to IDLE |
+| `DEFECT:YES` | PC → Arduino | YOLO detected a defect. Tells Arduino to sort via Servo 1 |
+| `DEFECT:NO` | PC → Arduino | YOLO passed the cocoon. Tells Arduino to proceed to moisture check |
+| `{"metrics":{...}}` | Arduino → PC | Real-time JSON telemetry payload sent every 500ms |
+| `[DEBUG] ...` | Arduino → PC | Plain text debug logs (printed to the Python console) |
 
 ---
 

@@ -15,19 +15,20 @@ except Exception as e:
     model = None
 
 # '0' is the standard ID for a built-in laptop webcam
-camera = cv2.VideoCapture(0)
+camera = cv2.VideoCapture(1)
 
 # --- SERIAL COMMUNICATION SETUP ---
 COM_PORT = 'COM3'  # Windows usually uses COM ports
-BAUD_RATE = 115200
+BAUD_RATE = 9600
 
 latest_telemetry = {
     "metrics": {"total": 0, "good": 0, "bad": 0, "fps": "0.0"},
-    "hardware": {"motorA": "STOPPED", "pump": "STOPPED", "ir1": "CLEAR"},
+    "hardware": {"motorA": "STOPPED", "hopper": "STOPPED", "ir1": "CLEAR"},
     "environment": {"moisture": 0}
 }
 serial_connected = False
 arduino = None
+defect_eval_sent = False
 
 def serial_reader():
     global latest_telemetry, serial_connected, arduino
@@ -43,7 +44,9 @@ def serial_reader():
         try:
             if arduino.in_waiting > 0:
                 line = arduino.readline().decode('utf-8').strip()
-                if line.startswith('{') and line.endswith('}'):
+                if line.startswith('[DEBUG]'):
+                    print(line)
+                elif line.startswith('{') and line.endswith('}'):
                     try:
                         parsed_data = json.loads(line)
                         latest_telemetry.update(parsed_data)
@@ -79,8 +82,22 @@ def generate_frames():
                 results = model(frame, verbose=False)
                 annotated_frame = results[0].plot()
                 
-                # Optional: You could update good/bad telemetry here based on len(results[0].boxes) 
-                # if you mapped the exact classes. E.g. counting current detected items.
+                global defect_eval_sent, serial_connected, arduino
+                hardware_state = latest_telemetry.get("hardware", {})
+                if serial_connected and arduino is not None:
+                    if hardware_state.get("ir1") == "BLOCKED" and not defect_eval_sent:
+                        has_defect = len(results[0].boxes) > 0 # Assuming any bounding box is a defect
+                        cmd = b"DEFECT:YES\n" if has_defect else b"DEFECT:NO\n"
+                        try:
+                            arduino.write(cmd)
+                            print(f"Sent YOLO result to Arduino: {cmd.strip().decode('utf-8')}")
+                            defect_eval_sent = True
+                        except Exception as e:
+                            print(f"Failed to send command to Arduino: {e}")
+                    
+                    elif hardware_state.get("ir1") == "CLEAR":
+                        defect_eval_sent = False
+
             else:
                 annotated_frame = frame
 
@@ -105,4 +122,4 @@ def telemetry():
     return jsonify(latest_telemetry)
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
