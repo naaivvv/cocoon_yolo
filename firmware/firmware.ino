@@ -186,9 +186,9 @@ void runStateMachine() {
 
     case STATE_SORT_DEFECT:
       // Sweep servo1 slowly to swipe the bad cocoon
-      sweepServo(servo1, 90, 0, 15);
+      sweepServo(servo1, 90, 0, 10);
       delay(500); 
-      sweepServo(servo1, 0, 90, 15);
+      sweepServo(servo1, 0, 90, 10);
       
       changeState(STATE_FEEDING); // Next cocoon
       break;
@@ -218,9 +218,9 @@ void runStateMachine() {
 
     case STATE_SORT_MOISTURE:
       // Sweep servo2 slowly
-      sweepServo(servo2, 90, 180, 15);
+      sweepServo(servo2, 90, 180, 10);
       delay(500);
-      sweepServo(servo2, 180, 90, 15);
+      sweepServo(servo2, 180, 90, 10);
       
       changeState(STATE_FEEDING); // Next cocoon
       break;

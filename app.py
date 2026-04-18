@@ -15,11 +15,11 @@ except Exception as e:
     model = None
 
 # '0' is the standard ID for a built-in laptop webcam
-camera = cv2.VideoCapture(1)
+camera = cv2.VideoCapture(0)
 
 # --- SERIAL COMMUNICATION SETUP ---
 COM_PORT = 'COM3'  # Windows usually uses COM ports
-BAUD_RATE = 9600
+BAUD_RATE = 115200
 
 latest_telemetry = {
     "metrics": {"total": 0, "good": 0, "bad": 0, "fps": "0.0"},
