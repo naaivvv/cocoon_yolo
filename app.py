@@ -3,7 +3,7 @@ import serial
 import threading
 import json
 import time
-from flask import Flask, render_template, Response, jsonify, send_from_directory
+from flask import Flask, render_template, Response, jsonify, send_from_directory, request
 from ultralytics import YOLO
 
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -19,7 +19,7 @@ camera = cv2.VideoCapture(0)
 
 # --- SERIAL COMMUNICATION SETUP ---
 COM_PORT = 'COM3'  # Windows usually uses COM ports
-BAUD_RATE = 115200
+BAUD_RATE = 9600
 
 latest_telemetry = {
     "metrics": {"total": 0, "good": 0, "bad": 0, "fps": "0.0"},
@@ -120,6 +120,29 @@ def video_feed():
 @app.route('/api/telemetry')
 def telemetry():
     return jsonify(latest_telemetry)
+
+@app.route('/api/command', methods=['POST'])
+def command():
+    global serial_connected, arduino
+    data = request.json
+    action = data.get('action')
+    if action == 'start':
+        if serial_connected and arduino:
+            try:
+                arduino.write(b"START\n")
+                return jsonify({"status": "success", "message": "START sent"})
+            except Exception as e:
+                return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Serial not connected"}), 503
+    elif action == 'stop':
+        if serial_connected and arduino:
+            try:
+                arduino.write(b"STOP\n")
+                return jsonify({"status": "success", "message": "STOP sent"})
+            except Exception as e:
+                return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Serial not connected"}), 503
+    return jsonify({"status": "error", "message": "Invalid action"}), 400
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

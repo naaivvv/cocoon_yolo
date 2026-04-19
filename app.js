@@ -46,16 +46,31 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // --- 4. ACTION BUTTONS ---
     document.getElementById("btn-start").addEventListener("click", async () => {
-        // Example POST request to start system
         console.log("Sending START command to hardware...");
         systemIsRunning = true;
-        // await fetch('/api/command', { method: 'POST', body: JSON.stringify({ action: 'start' }) });
+        try {
+            await fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'start' })
+            });
+        } catch (error) {
+            console.error("Failed to send START:", error);
+        }
     });
 
     document.getElementById("btn-stop").addEventListener("click", async () => {
         console.log("Sending ESTOP command to hardware...");
         systemIsRunning = false;
-        // await fetch('/api/command', { method: 'POST', body: JSON.stringify({ action: 'stop' }) });
+        try {
+            await fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'stop' })
+            });
+        } catch (error) {
+            console.error("Failed to send STOP:", error);
+        }
     });
 
     // --- 5. DOM UPDATERS ---

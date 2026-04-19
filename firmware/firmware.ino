@@ -55,7 +55,7 @@ unsigned long goodProcessed = 0;
 unsigned long badProcessed = 0;
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   // Conveyor pins
   pinMode(enA, OUTPUT);
