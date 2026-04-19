@@ -79,7 +79,9 @@ def generate_frames():
 
             # YOLO object detection
             if model is not None:
-                results = model(frame, verbose=False)
+                # Use agnostic_nms=True to prevent overlapping bounding boxes
+                # of different classes (e.g. good and bad) on the same object.
+                results = model(frame, verbose=False, agnostic_nms=True)
                 annotated_frame = results[0].plot()
                 
                 global defect_eval_sent, serial_connected, arduino

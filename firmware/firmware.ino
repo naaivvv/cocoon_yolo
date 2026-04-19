@@ -203,9 +203,10 @@ void runStateMachine() {
       }
       break;
 
-    case STATE_CHECK_MOISTURE:
+    case STATE_CHECK_MOISTURE: {
       // Evaluate moisture
-      if (ir2Value > 600) {
+      int moisturePercent = map(ir2Value, 0, 1023, 0, 100);
+      if (moisturePercent > 13) {
         Serial.println("[DEBUG] High moisture detected");
         badProcessed++;
         changeState(STATE_SORT_MOISTURE);
@@ -215,6 +216,7 @@ void runStateMachine() {
         changeState(STATE_MOVE_TO_END);
       }
       break;
+    }
 
     case STATE_SORT_MOISTURE:
       // Sweep servo2 slowly

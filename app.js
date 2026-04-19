@@ -152,10 +152,19 @@ document.addEventListener("DOMContentLoaded", () => {
             setHardwareStatus("ir-1", data.hardware.ir1);
 
             // 3. Update Moisture Dial
-            const moisture = data.environment.moisture;
-            document.getElementById("val-moisture").textContent = moisture;
-            // Map Moisture Analog (0 - 1023)
-            setDialRotation("dial-moisture", "moisture-track", moisture, 0, 1023, "#42a5f5");
+            const moistureRaw = data.environment.moisture;
+            const moisturePercent = Math.round((moistureRaw / 1023) * 100);
+            const valMoisture = document.getElementById("val-moisture");
+            
+            if (moisturePercent > 13) {
+                valMoisture.textContent = moisturePercent + "%";
+                valMoisture.className = "font-headline text-4xl font-black text-error";
+                setDialRotation("dial-moisture", "moisture-track", moisturePercent, 0, 100, "#ee7d77");
+            } else {
+                valMoisture.textContent = moisturePercent + "%";
+                valMoisture.className = "font-headline text-4xl font-black text-tertiary";
+                setDialRotation("dial-moisture", "moisture-track", moisturePercent, 0, 100, "#bbffb3");
+            }
 
             // Sync visual feedback
             document.getElementById("sync-indicator").classList.remove("text-error");
