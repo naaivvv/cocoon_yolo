@@ -8,6 +8,8 @@ const int enA = 3;
 const int in1 = 4;
 const int in2 = 5;
 
+int conveyorSpeed = 255;
+
 // Hopper Motor (L298N)
 const int enB = 6;
 const int in3 = 7;
@@ -101,7 +103,7 @@ void setup() {
   servo2.attach(servo2Pin);
   
   // Set default servo positions
-  servo1.write(90);
+  servo1.write(180);
   servo2.write(90);
 
   Serial.println("[DEBUG] System Initialized");
@@ -166,6 +168,14 @@ void processSerialCommands() {
         goodProcessed++;
         changeState(STATE_MOVE_TO_END);
       }
+    } else if (command.startsWith("SPEED:")) {
+      int speedVal = command.substring(6).toInt();
+      if (speedVal >= 0 && speedVal <= 255) {
+        conveyorSpeed = speedVal;
+        Serial.print("[DEBUG] Conveyor speed set to ");
+        Serial.println(conveyorSpeed);
+        if (conveyorRunning) analogWrite(enA, conveyorSpeed);
+      }
     }
   }
 }
@@ -227,7 +237,7 @@ void runStateMachine() {
 
     case STATE_SORT_DEFECT:
       // Sweep servo1 gently to 180 and back to push the bad cocoon
-      sweepServo(servo1, 90, 180, 10);
+      sweepServo(servo1, 180, 0, 10);
       delay(500); 
       sweepServo(servo1, 180, 90, 10);
       
@@ -273,7 +283,7 @@ void sweepServo(Servo &s, int startPos, int endPos, int stepDelay) {
 void startConveyor() {
   digitalWrite(in1, HIGH);
   digitalWrite(in2, LOW);
-  analogWrite(enA, 255); // Full speed
+  analogWrite(enA, conveyorSpeed);
   conveyorRunning = true;
 }
 

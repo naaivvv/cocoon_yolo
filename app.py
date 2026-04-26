@@ -175,6 +175,14 @@ def command():
             except Exception as e:
                 return jsonify({"status": "error", "message": str(e)}), 500
         return jsonify({"status": "error", "message": "Serial not connected"}), 503
+    elif action.startswith('SPEED:'):
+        if serial_connected and arduino:
+            try:
+                arduino.write(f"{action}\n".encode('utf-8'))
+                return jsonify({"status": "success", "message": f"{action} sent"})
+            except Exception as e:
+                return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Serial not connected"}), 503
     return jsonify({"status": "error", "message": "Invalid action"}), 400
 
 if __name__ == "__main__":

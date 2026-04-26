@@ -44,81 +44,62 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // --- 4. ACTION BUTTONS ---
+    // --- 4. ACTION BUTTONS & SLIDERS ---
     function updateSystemControlsUI() {
-        const btnStart = document.getElementById("btn-start");
-        const btnStop  = document.getElementById("btn-stop");
-
+        const btnToggle = document.getElementById("btn-toggle-system");
+        
         if (systemIsRunning) {
-            // START → disabled state showing RUNNING
-            btnStart.style.background    = "var(--surface-3)";
-            btnStart.style.color         = "var(--tertiary)";
-            btnStart.style.cursor        = "not-allowed";
-            btnStart.style.boxShadow     = "none";
-            btnStart.style.border        = "1px solid var(--border)";
-            btnStart.style.pointerEvents = "none";
-            btnStart.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px; font-variation-settings:'FILL' 1;">check_circle</span>SYSTEM_RUNNING`;
-
-            // STOP → active red glow
-            btnStop.style.background    = "rgba(238,125,119,0.12)";
-            btnStop.style.color         = "var(--error)";
-            btnStop.style.border        = "1px solid var(--error)";
-            btnStop.style.cursor        = "pointer";
-            btnStop.style.opacity       = "1";
-            btnStop.style.pointerEvents = "auto";
+            btnToggle.style.background    = "rgba(238,125,119,0.12)";
+            btnToggle.style.color         = "var(--error)";
+            btnToggle.style.border        = "1px solid var(--error)";
+            btnToggle.style.boxShadow     = "none";
+            btnToggle.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px; font-variation-settings:'FILL' 1;">stop</span>STOP_SYSTEM`;
         } else {
-            // START → active primary
-            btnStart.style.background    = "var(--primary)";
-            btnStart.style.color         = "#003a70";
-            btnStart.style.cursor        = "pointer";
-            btnStart.style.boxShadow     = "0 4px 0 0 rgba(0,60,120,0.3), 0 8px 15px rgba(0,0,0,0.2)";
-            btnStart.style.border        = "none";
-            btnStart.style.pointerEvents = "auto";
-            btnStart.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px; font-variation-settings:'FILL' 1;">play_arrow</span>START_SYSTEM`;
-
-            // STOP → muted/disabled
-            btnStop.style.background    = "var(--surface-2)";
-            btnStop.style.color         = "var(--text-2)";
-            btnStop.style.border        = "1px solid var(--border)";
-            btnStop.style.cursor        = "not-allowed";
-            btnStop.style.opacity       = "0.4";
-            btnStop.style.pointerEvents = "none";
+            btnToggle.style.background    = "var(--primary)";
+            btnToggle.style.color         = "#003a70";
+            btnToggle.style.border        = "none";
+            btnToggle.style.boxShadow     = "0 4px 0 0 rgba(0,60,120,0.3), 0 8px 15px rgba(0,0,0,0.2)";
+            btnToggle.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px; font-variation-settings:'FILL' 1;">play_arrow</span>START_SYSTEM`;
         }
     }
 
-    document.getElementById("btn-start").addEventListener("click", async () => {
-        if (systemIsRunning) return;
-        console.log("Sending START command to hardware...");
-        systemIsRunning = true;
+    document.getElementById("btn-toggle-system").addEventListener("click", async () => {
+        const action = systemIsRunning ? 'stop' : 'start';
+        console.log(`Sending ${action.toUpperCase()} command to hardware...`);
+        systemIsRunning = !systemIsRunning;
         updateSystemControlsUI();
         try {
             await fetch('/api/command', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'start' })
+                body: JSON.stringify({ action })
             });
         } catch (error) {
-            console.error("Failed to send START:", error);
-            systemIsRunning = false;
+            console.error(`Failed to send ${action}:`, error);
+            systemIsRunning = !systemIsRunning; // revert UI
             updateSystemControlsUI();
         }
     });
 
-    document.getElementById("btn-stop").addEventListener("click", async () => {
-        if (!systemIsRunning) return;
-        console.log("Sending ESTOP command to hardware...");
-        systemIsRunning = false;
-        updateSystemControlsUI();
-        try {
-            await fetch('/api/command', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'stop' })
-            });
-        } catch (error) {
-            console.error("Failed to send STOP:", error);
-        }
-    });
+    const speedSlider = document.getElementById("conveyor-speed");
+    const speedVal = document.getElementById("val-speed");
+    if (speedSlider) {
+        speedSlider.addEventListener("input", (e) => {
+            speedVal.textContent = e.target.value;
+        });
+        speedSlider.addEventListener("change", async (e) => {
+            console.log(`Sending SPEED:${e.target.value} to hardware...`);
+            try {
+                await fetch('/api/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: `SPEED:${e.target.value}` })
+                });
+            } catch (error) {
+                console.error("Failed to send speed command:", error);
+            }
+        });
+    }
 
     // Initialize UI
     updateSystemControlsUI();
