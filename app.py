@@ -3,8 +3,14 @@ import serial
 import threading
 import json
 import time
+import argparse
 from flask import Flask, render_template, Response, jsonify, send_from_directory, request
 from ultralytics import YOLO
+
+parser = argparse.ArgumentParser(description="Cocoon YOLO Backend")
+parser.add_argument('--debug', action='store_true', help='Enable verbose serial and system debugging')
+args = parser.parse_args()
+DEBUG_MODE = args.debug
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
@@ -29,6 +35,7 @@ latest_telemetry = {
 serial_connected = False
 arduino = None
 defect_eval_sent = False
+last_eval_time = 0
 
 def serial_reader():
     global latest_telemetry, serial_connected, arduino
@@ -50,10 +57,13 @@ def serial_reader():
 
         try:
             if arduino and arduino.in_waiting > 0:
-                line = arduino.readline().decode('utf-8').strip()
-                if line.startswith('[DEBUG]'):
+                line = arduino.readline().decode('utf-8', errors='replace').strip()
+                if DEBUG_MODE and line:
+                    print(f"[SERIAL RAW] {line}")
+                elif line.startswith('[DEBUG]'):
                     print(line)
-                elif line.startswith('{') and line.endswith('}'):
+                
+                if line.startswith('{') and line.endswith('}'):
                     try:
                         parsed_data = json.loads(line)
                         # Deep merge: update nested dicts instead of replacing them
@@ -104,31 +114,39 @@ def generate_frames():
                 results = model(frame, verbose=False, agnostic_nms=True)
                 annotated_frame = results[0].plot()
                 
-                global defect_eval_sent, serial_connected, arduino
+                global defect_eval_sent, last_eval_time, serial_connected, arduino
                 hardware_state = latest_telemetry.get("hardware", {})
                 if serial_connected and arduino is not None:
-                    if hardware_state.get("ir1") == "BLOCKED" and not defect_eval_sent:
-                        # Check if any detected box is classified as 'bad'
-                        has_defect = False
-                        boxes = results[0].boxes
-                        if boxes is not None and len(boxes) > 0:
-                            for box in boxes:
-                                class_id = int(box.cls[0])
-                                class_name = model.names[class_id].lower()
-                                print(f"[YOLO] Detected class: '{class_name}'")
-                                if class_name == "bad":
-                                    has_defect = True
-                                    break
-                        
-                        cmd = b"DEFECT:YES\n" if has_defect else b"DEFECT:NO\n"
-                        try:
-                            arduino.write(cmd)
-                            print(f"Sent YOLO result to Arduino: {cmd.strip().decode('utf-8')}")
-                            defect_eval_sent = True
-                        except Exception as e:
-                            print(f"Failed to send command to Arduino: {e}")
+                    current_time = time.time()
+                    if hardware_state.get("ir1") == "BLOCKED":
+                        if not defect_eval_sent or (current_time - last_eval_time > 0.5):
+                            # Check if any detected box is classified as 'bad'
+                            has_defect = False
+                            boxes = results[0].boxes
+                            if boxes is not None and len(boxes) > 0:
+                                for box in boxes:
+                                    class_id = int(box.cls[0])
+                                    class_name = model.names[class_id].lower()
+                                    print(f"[YOLO] Detected class: '{class_name}'")
+                                    if class_name == "bad":
+                                        has_defect = True
+                                        break
+                            
+                            cmd = b"DEFECT:YES\n" if has_defect else b"DEFECT:NO\n"
+                            try:
+                                arduino.write(cmd)
+                                if DEBUG_MODE:
+                                    print(f"[DEBUG] Sent YOLO result to Arduino: {cmd.strip().decode('utf-8')} for IR1=BLOCKED")
+                                else:
+                                    print(f"Sent YOLO result to Arduino: {cmd.strip().decode('utf-8')}")
+                                defect_eval_sent = True
+                                last_eval_time = current_time
+                            except Exception as e:
+                                print(f"Failed to send command to Arduino: {e}")
                     
                     elif hardware_state.get("ir1") == "CLEAR":
+                        if defect_eval_sent and DEBUG_MODE:
+                            print("[DEBUG] IR1 is now CLEAR. Resetting defect_eval_sent to False.")
                         defect_eval_sent = False
 
             else:

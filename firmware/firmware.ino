@@ -124,7 +124,20 @@ void loop() {
 }
 
 void readSensors() {
-  ir1State = digitalRead(ir1Pin);
+  // Simple software debounce for the IR sensor
+  static int lastIrRead = HIGH;
+  static unsigned long lastDebounceTime = 0;
+  int currentIrRead = digitalRead(ir1Pin);
+
+  if (currentIrRead != lastIrRead) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > 50) { // Must be stable for 50ms
+    ir1State = currentIrRead;
+  }
+  lastIrRead = currentIrRead;
+
   float ambientTempC = mlx.readAmbientTempC();
   float objectTempC = mlx.readObjectTempC();
   currentMoisturePercent = calculateMoisture(objectTempC, ambientTempC);
@@ -221,9 +234,9 @@ void runStateMachine() {
         stopHopper();
       }
 
-      // Guard: wait at least 500ms before checking IR1 to avoid
-      // false triggers from vibration or sensor noise at startup.
-      if (millis() - stateTimer > 500 && ir1State == LOW) {
+      // Guard: wait at least 1500ms before checking IR1 to allow the
+      // previous cocoon to fully clear the sensor area when conveyor starts.
+      if (millis() - stateTimer > 1500 && ir1State == LOW) {
         delay(100); // Wait a tiny bit for cocoon to center
         if (hopperRunning) stopHopper(); // Failsafe
         stopConveyor(); // Stop conveyor
@@ -245,12 +258,12 @@ void runStateMachine() {
       break;
 
     case STATE_SORT_MOISTURE:
-      servo2.write(180); // Set blocking angle
+      servo2.write(45); // Set blocking angle
       startConveyor();   // Run conveyor to move cocoon to the block
       
       if (millis() - stateTimer > 2000) { // Give it 2 seconds to slide off
         stopConveyor();
-        servo2.write(90); // Reset servo back to neutral
+        servo2.write(180); // Reset servo back to neutral
         changeState(STATE_FEEDING); // Next cocoon
       }
       break;
