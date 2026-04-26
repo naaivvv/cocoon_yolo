@@ -1,4 +1,6 @@
 #include <Servo.h>
+#include <Wire.h>
+#include <Adafruit_MLX90614.h>
 
 // --- Pin Definitions ---
 // Conveyor Motor (L298N)
@@ -15,7 +17,6 @@ const int HOPPER_SPEED = 178; // 70% speed
 
 // Sensors
 const int ir1Pin = 2; // Digital IR
-const int ir2Pin = A0; // Analog IR (moisture/reflectance)
 
 // Servos
 const int servo1Pin = 9;
@@ -24,6 +25,15 @@ const int servo2Pin = 10;
 // --- Objects ---
 Servo servo1;
 Servo servo2;
+Adafruit_MLX90614 mlx = Adafruit_MLX90614();
+
+float calculateMoisture(float objectTempC, float ambientTempC) {
+  float tempDiff = ambientTempC - objectTempC;
+  if (tempDiff <= 0) return 0.0; 
+  float moisturePercent = tempDiff * 7.5;
+  if (moisturePercent > 100.0) moisturePercent = 100.0;
+  return moisturePercent;
+}
 
 // --- State Machine Enums ---
 enum SystemState {
@@ -45,7 +55,7 @@ bool systemActive = false;
 bool conveyorRunning = false;
 bool hopperRunning = false;
 int ir1State = HIGH; // Assuming HIGH is clear, LOW is object detected
-int ir2Value = 0;
+float currentMoisturePercent = 0.0;
 
 // Non-blocking timers
 unsigned long previousTelemetryMillis = 0;
@@ -81,6 +91,10 @@ void setup() {
   // Sensor pins
   pinMode(ir1Pin, INPUT);
 
+  if (!mlx.begin()) {
+    Serial.println("[ERROR] MLX90614 not found. Check wiring (SDA->A4, SCL->A5).");
+  }
+
   // Servos
   servo1.attach(servo1Pin);
   servo2.attach(servo2Pin);
@@ -108,7 +122,9 @@ void loop() {
 
 void readSensors() {
   ir1State = digitalRead(ir1Pin);
-  ir2Value = analogRead(ir2Pin);
+  float ambientTempC = mlx.readAmbientTempC();
+  float objectTempC = mlx.readObjectTempC();
+  currentMoisturePercent = calculateMoisture(objectTempC, ambientTempC);
 }
 
 void processSerialCommands() {
@@ -218,8 +234,7 @@ void runStateMachine() {
 
     case STATE_CHECK_MOISTURE: {
       // Evaluate moisture
-      int moisturePercent = map(ir2Value, 0, 1023, 0, 100);
-      if (moisturePercent > 13) {
+      if (currentMoisturePercent > 13.0) {
         Serial.println("[DEBUG] High moisture detected");
         moistureProcessed++;
         changeState(STATE_SORT_MOISTURE);
@@ -308,6 +323,6 @@ void sendTelemetryJSON() {
   Serial.print("\"hopper\":\""); Serial.print(hopperStatus); Serial.print("\",");
   Serial.print("\"ir1\":\""); Serial.print(ir1Status); Serial.print("\"");
   Serial.print("},\"environment\":{");
-  Serial.print("\"moisture\":"); Serial.print(ir2Value);
+  Serial.print("\"moisture\":"); Serial.print(currentMoisturePercent);
   Serial.println("}}");
 }

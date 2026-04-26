@@ -203,8 +203,7 @@ document.addEventListener("DOMContentLoaded", () => {
             setHardwareStatus("ir-1", data.hardware.ir1);
 
             // 3. Update Moisture Dial
-            const moistureRaw     = data.environment.moisture;
-            const moisturePercent = Math.round((moistureRaw / 1023) * 100);
+            const moisturePercent = Math.round(data.environment.moisture);
             const valMoisture     = document.getElementById("val-moisture");
 
             if (moisturePercent > 13) {

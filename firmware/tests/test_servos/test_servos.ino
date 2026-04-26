@@ -10,7 +10,7 @@ Servo servo1;
 Servo servo2;
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   Serial.println("--- Servo Motors Test ---");
   
   servo1.attach(servo1Pin);
