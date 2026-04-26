@@ -46,6 +46,9 @@ enum SystemState {
   STATE_MOVE_TO_END
 };
 
+// Forward declaration to fix Arduino IDE compilation error
+void changeState(SystemState newState);
+
 SystemState currentState = STATE_IDLE;
 bool systemActive = false;
 
