@@ -15,14 +15,14 @@ except Exception as e:
     model = None
 
 # '0' is the standard ID for a built-in laptop webcam
-camera = cv2.VideoCapture(0)
+camera = cv2.VideoCapture(1)
 
 # --- SERIAL COMMUNICATION SETUP ---
 COM_PORT = 'COM3'  # Windows usually uses COM ports
 BAUD_RATE = 9600
 
 latest_telemetry = {
-    "metrics": {"total": 0, "good": 0, "bad": 0, "fps": "0.0"},
+    "metrics": {"total": 0, "good": 0, "defect": 0, "moisture_reject": 0, "fps": "0.0"},
     "hardware": {"motorA": "STOPPED", "hopper": "STOPPED", "ir1": "CLEAR"},
     "environment": {"moisture": 0}
 }
@@ -32,26 +32,46 @@ defect_eval_sent = False
 
 def serial_reader():
     global latest_telemetry, serial_connected, arduino
-    try:
-        arduino = serial.Serial(COM_PORT, BAUD_RATE, timeout=1)
-        serial_connected = True
-        print(f"Successfully connected to Arduino on {COM_PORT}")
-    except serial.SerialException as e:
-        print(f"WARNING: Could not connect to Arduino on {COM_PORT}. Error: {e}")
-        serial_connected = False
+    
+    while True:
+        if not serial_connected:
+            try:
+                arduino = serial.Serial(COM_PORT, BAUD_RATE, timeout=1)
+                serial_connected = True
+                print(f"Successfully connected to Arduino on {COM_PORT}")
+                time.sleep(2)  # Wait for Arduino to finish booting after DTR reset
+                arduino.write(b"RESET\n")  # Zero all hardware counters on connect
+                print("[INFO] Sent RESET to Arduino - counters zeroed")
+            except serial.SerialException as e:
+                # Suppress constant printing, only print once per disconnect if needed
+                serial_connected = False
+                time.sleep(2)
+                continue
 
-    while serial_connected:
         try:
-            if arduino.in_waiting > 0:
+            if arduino and arduino.in_waiting > 0:
                 line = arduino.readline().decode('utf-8').strip()
                 if line.startswith('[DEBUG]'):
                     print(line)
                 elif line.startswith('{') and line.endswith('}'):
                     try:
                         parsed_data = json.loads(line)
-                        latest_telemetry.update(parsed_data)
+                        # Deep merge: update nested dicts instead of replacing them
+                        # This preserves Python-side keys like 'fps' inside metrics
+                        for key, value in parsed_data.items():
+                            if isinstance(value, dict) and key in latest_telemetry:
+                                latest_telemetry[key].update(value)
+                            else:
+                                latest_telemetry[key] = value
                     except json.JSONDecodeError:
                         pass # Ignore malformed json
+        except serial.SerialException as e:
+            print(f"Serial connection lost: {e}")
+            serial_connected = False
+            if arduino:
+                arduino.close()
+            arduino = None
+            time.sleep(2)
         except Exception as e:
             print(f"Serial read error: {e}")
             time.sleep(1)
@@ -88,7 +108,18 @@ def generate_frames():
                 hardware_state = latest_telemetry.get("hardware", {})
                 if serial_connected and arduino is not None:
                     if hardware_state.get("ir1") == "BLOCKED" and not defect_eval_sent:
-                        has_defect = len(results[0].boxes) > 0 # Assuming any bounding box is a defect
+                        # Check if any detected box is classified as 'bad'
+                        has_defect = False
+                        boxes = results[0].boxes
+                        if boxes is not None and len(boxes) > 0:
+                            for box in boxes:
+                                class_id = int(box.cls[0])
+                                class_name = model.names[class_id].lower()
+                                print(f"[YOLO] Detected class: '{class_name}'")
+                                if class_name == "bad":
+                                    has_defect = True
+                                    break
+                        
                         cmd = b"DEFECT:YES\n" if has_defect else b"DEFECT:NO\n"
                         try:
                             arduino.write(cmd)

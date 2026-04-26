@@ -6,8 +6,12 @@ const int enA = 3;
 const int in1 = 4;
 const int in2 = 5;
 
-// Hopper Motor (Relay)
-const int hopperPin = 6;
+// Hopper Motor (L298N)
+const int enB = 6;
+const int in3 = 7;
+const int in4 = 8;
+
+const int HOPPER_SPEED = 178; // 70% speed
 
 // Sensors
 const int ir1Pin = 2; // Digital IR
@@ -52,7 +56,8 @@ unsigned long stateTimer = 0; // For states that need delays
 // Mock counters for JSON payload
 unsigned long totalProcessed = 0;
 unsigned long goodProcessed = 0;
-unsigned long badProcessed = 0;
+unsigned long defectProcessed = 0;
+unsigned long moistureProcessed = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -63,9 +68,15 @@ void setup() {
   pinMode(in2, OUTPUT);
   stopConveyor();
 
-  // Hopper pin
-  pinMode(hopperPin, OUTPUT);
-  digitalWrite(hopperPin, LOW);
+  // Hopper pins
+  pinMode(enB, OUTPUT);
+  pinMode(in3, OUTPUT);
+  pinMode(in4, OUTPUT);
+  
+  // Initialize hopper motor to OFF
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 0);
 
   // Sensor pins
   pinMode(ir1Pin, INPUT);
@@ -114,13 +125,18 @@ void processSerialCommands() {
     } else if (command.equalsIgnoreCase("STOP")) {
       systemActive = false;
       stopConveyor();
-      digitalWrite(hopperPin, LOW);
-      hopperRunning = false;
+      stopHopper();
       Serial.println("[DEBUG] Command: STOP");
       changeState(STATE_IDLE);
+    } else if (command.equalsIgnoreCase("RESET")) {
+      totalProcessed = 0;
+      goodProcessed = 0;
+      defectProcessed = 0;
+      moistureProcessed = 0;
+      Serial.println("[DEBUG] Command: RESET - Counters zeroed");
     } else if (command.equalsIgnoreCase("DEFECT:YES") && currentState == STATE_WAITING_CAM_RESULT) {
       Serial.println("[DEBUG] Command: DEFECT:YES");
-      badProcessed++;
+      defectProcessed++;
       changeState(STATE_SORT_DEFECT);
     } else if (command.equalsIgnoreCase("DEFECT:NO") && currentState == STATE_WAITING_CAM_RESULT) {
       Serial.println("[DEBUG] Command: DEFECT:NO");
@@ -159,23 +175,20 @@ void runStateMachine() {
       break;
 
     case STATE_FEEDING:
-      digitalWrite(hopperPin, HIGH);
-      hopperRunning = true;
-      // Run hopper for 1000ms to drop a cocoon
-      if (millis() - stateTimer > 1000) {
-        digitalWrite(hopperPin, LOW);
-        hopperRunning = false;
-        totalProcessed++;
-        changeState(STATE_MOVING_TO_CAM);
-      }
+      // Activate hopper and conveyor together
+      startHopper();
+      startConveyor();
+      totalProcessed++;
+      changeState(STATE_MOVING_TO_CAM); // stateTimer resets here
       break;
 
     case STATE_MOVING_TO_CAM:
-      startConveyor();
-      // Wait until IR1 detects object (LOW)
-      if (ir1State == LOW) {
+      // Guard: wait at least 500ms before checking IR1 to avoid
+      // false triggers from vibration or sensor noise at startup.
+      if (millis() - stateTimer > 500 && ir1State == LOW) {
         delay(100); // Wait a tiny bit for cocoon to center
-        stopConveyor();
+        stopHopper();
+        stopConveyor(); // Stop conveyor
         changeState(STATE_WAITING_CAM_RESULT);
       }
       break;
@@ -195,9 +208,9 @@ void runStateMachine() {
 
     case STATE_MOVING_TO_MOISTURE:
       startConveyor();
-      // Move to 2nd IR sensor. ir2Value > 100 assumed as presence
-      if (ir2Value > 100) {
-        delay(100); // Center cocoon
+      // Travel time from Camera/IR1 position to Moisture sensor position.
+      // Adjust this delay (ms) to match the physical distance on your belt.
+      if (millis() - stateTimer > 2000) {
         stopConveyor();
         changeState(STATE_CHECK_MOISTURE);
       }
@@ -208,7 +221,7 @@ void runStateMachine() {
       int moisturePercent = map(ir2Value, 0, 1023, 0, 100);
       if (moisturePercent > 13) {
         Serial.println("[DEBUG] High moisture detected");
-        badProcessed++;
+        moistureProcessed++;
         changeState(STATE_SORT_MOISTURE);
       } else {
         Serial.println("[DEBUG] Moisture OK");
@@ -266,6 +279,20 @@ void stopConveyor() {
   conveyorRunning = false;
 }
 
+void startHopper() {
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, HOPPER_SPEED);
+  hopperRunning = true;
+}
+
+void stopHopper() {
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 0);
+  hopperRunning = false;
+}
+
 void sendTelemetryJSON() {
   String motorStatus = conveyorRunning ? "RUNNING" : "STOPPED";
   String ir1Status = (ir1State == LOW) ? "BLOCKED" : "CLEAR";
@@ -274,7 +301,8 @@ void sendTelemetryJSON() {
   Serial.print("{\"metrics\":{");
   Serial.print("\"total\":"); Serial.print(totalProcessed); Serial.print(",");
   Serial.print("\"good\":"); Serial.print(goodProcessed); Serial.print(",");
-  Serial.print("\"bad\":"); Serial.print(badProcessed);
+  Serial.print("\"defect\":"); Serial.print(defectProcessed); Serial.print(",");
+  Serial.print("\"moisture_reject\":"); Serial.print(moistureProcessed);
   Serial.print("},\"hardware\":{");
   Serial.print("\"motorA\":\""); Serial.print(motorStatus); Serial.print("\",");
   Serial.print("\"hopper\":\""); Serial.print(hopperStatus); Serial.print("\",");

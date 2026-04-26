@@ -7,7 +7,7 @@ const int in1 = 4;
 const int in2 = 5;
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   Serial.println("--- Conveyor Motor Test ---");
   
   pinMode(enA, OUTPUT);
@@ -21,7 +21,7 @@ void setup() {
 }
 
 void loop() {
-  Serial.println("Running Conveyor FORWARD for 3 seconds...");
+  Serial.println("Running Conveyor FORWARD for 12 seconds...");
   digitalWrite(in1, HIGH);
   digitalWrite(in2, LOW);
   analogWrite(enA, 255); // Full speed
@@ -34,11 +34,11 @@ void loop() {
   delay(2000);
 
   // Note: Most conveyor belts only need to go one way, but we test reverse just in case.
-  Serial.println("Running Conveyor REVERSE for 3 seconds...");
+  Serial.println("Running Conveyor REVERSE for 12 seconds...");
   digitalWrite(in1, LOW);
   digitalWrite(in2, HIGH);
   analogWrite(enA, 255); // Full speed
-  delay(3000);
+  delay(12000);
 
   Serial.println("Stopping Conveyor for 2 seconds...");
   digitalWrite(in1, LOW);
