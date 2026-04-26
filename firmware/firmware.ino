@@ -42,8 +42,6 @@ enum SystemState {
   STATE_MOVING_TO_CAM,
   STATE_WAITING_CAM_RESULT,
   STATE_SORT_DEFECT,
-  STATE_MOVING_TO_MOISTURE,
-  STATE_CHECK_MOISTURE,
   STATE_SORT_MOISTURE,
   STATE_MOVE_TO_END
 };
@@ -156,7 +154,15 @@ void processSerialCommands() {
       changeState(STATE_SORT_DEFECT);
     } else if (command.equalsIgnoreCase("DEFECT:NO") && currentState == STATE_WAITING_CAM_RESULT) {
       Serial.println("[DEBUG] Command: DEFECT:NO");
-      changeState(STATE_MOVING_TO_MOISTURE);
+      if (currentMoisturePercent > 13.0) {
+        Serial.println("[DEBUG] High moisture detected");
+        moistureProcessed++;
+        changeState(STATE_SORT_MOISTURE);
+      } else {
+        Serial.println("[DEBUG] Moisture OK");
+        goodProcessed++;
+        changeState(STATE_MOVE_TO_END);
+      }
     }
   }
 }
@@ -173,8 +179,6 @@ void changeState(SystemState newState) {
     case STATE_MOVING_TO_CAM: stateStr = "MOVING_TO_CAM"; break;
     case STATE_WAITING_CAM_RESULT: stateStr = "WAITING_CAM_RESULT"; break;
     case STATE_SORT_DEFECT: stateStr = "SORT_DEFECT"; break;
-    case STATE_MOVING_TO_MOISTURE: stateStr = "MOVING_TO_MOISTURE"; break;
-    case STATE_CHECK_MOISTURE: stateStr = "CHECK_MOISTURE"; break;
     case STATE_SORT_MOISTURE: stateStr = "SORT_MOISTURE"; break;
     case STATE_MOVE_TO_END: stateStr = "MOVE_TO_END"; break;
   }
@@ -199,11 +203,16 @@ void runStateMachine() {
       break;
 
     case STATE_MOVING_TO_CAM:
+      // Hopper runs for exactly 1000ms
+      if (hopperRunning && millis() - stateTimer > 1000) {
+        stopHopper();
+      }
+
       // Guard: wait at least 500ms before checking IR1 to avoid
       // false triggers from vibration or sensor noise at startup.
       if (millis() - stateTimer > 500 && ir1State == LOW) {
         delay(100); // Wait a tiny bit for cocoon to center
-        stopHopper();
+        if (hopperRunning) stopHopper(); // Failsafe
         stopConveyor(); // Stop conveyor
         changeState(STATE_WAITING_CAM_RESULT);
       }
@@ -214,45 +223,23 @@ void runStateMachine() {
       break;
 
     case STATE_SORT_DEFECT:
-      // Sweep servo1 slowly to swipe the bad cocoon
-      sweepServo(servo1, 90, 0, 10);
+      // Sweep servo1 gently to 180 and back to push the bad cocoon
+      sweepServo(servo1, 90, 180, 10);
       delay(500); 
-      sweepServo(servo1, 0, 90, 10);
+      sweepServo(servo1, 180, 90, 10);
       
       changeState(STATE_FEEDING); // Next cocoon
       break;
-
-    case STATE_MOVING_TO_MOISTURE:
-      startConveyor();
-      // Travel time from Camera/IR1 position to Moisture sensor position.
-      // Adjust this delay (ms) to match the physical distance on your belt.
-      if (millis() - stateTimer > 2000) {
-        stopConveyor();
-        changeState(STATE_CHECK_MOISTURE);
-      }
-      break;
-
-    case STATE_CHECK_MOISTURE: {
-      // Evaluate moisture
-      if (currentMoisturePercent > 13.0) {
-        Serial.println("[DEBUG] High moisture detected");
-        moistureProcessed++;
-        changeState(STATE_SORT_MOISTURE);
-      } else {
-        Serial.println("[DEBUG] Moisture OK");
-        goodProcessed++;
-        changeState(STATE_MOVE_TO_END);
-      }
-      break;
-    }
 
     case STATE_SORT_MOISTURE:
-      // Sweep servo2 slowly
-      sweepServo(servo2, 90, 180, 10);
-      delay(500);
-      sweepServo(servo2, 180, 90, 10);
+      servo2.write(180); // Set blocking angle
+      startConveyor();   // Run conveyor to move cocoon to the block
       
-      changeState(STATE_FEEDING); // Next cocoon
+      if (millis() - stateTimer > 2000) { // Give it 2 seconds to slide off
+        stopConveyor();
+        servo2.write(90); // Reset servo back to neutral
+        changeState(STATE_FEEDING); // Next cocoon
+      }
       break;
 
     case STATE_MOVE_TO_END:
