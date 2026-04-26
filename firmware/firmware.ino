@@ -104,7 +104,7 @@ void setup() {
   
   // Set default servo positions
   servo1.write(180);
-  servo2.write(90);
+  servo2.write(180);
 
   Serial.println("[DEBUG] System Initialized");
 }
@@ -239,7 +239,7 @@ void runStateMachine() {
       // Sweep servo1 gently to 180 and back to push the bad cocoon
       sweepServo(servo1, 180, 0, 10);
       delay(500); 
-      sweepServo(servo1, 180, 90, 10);
+      sweepServo(servo1, 0, 180, 10);
       
       changeState(STATE_FEEDING); // Next cocoon
       break;
