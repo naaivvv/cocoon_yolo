@@ -30,7 +30,7 @@ int ir1State = HIGH;
 float currentMoisturePercent = 0.0;
 
 unsigned long previousTelemetryMillis = 0;
-const long telemetryInterval = 300; // 300ms (reduced from 500ms)
+const long telemetryInterval = 500; // 300ms (reduced from 500ms)
 
 float calculateMoisture(float objectTempC, float ambientTempC) {
   float tempDiff = ambientTempC - objectTempC;

@@ -47,18 +47,18 @@ document.addEventListener("DOMContentLoaded", () => {
     // --- 4. ACTION BUTTONS & SLIDERS ---
     function updateSystemControlsUI() {
         const btnToggle = document.getElementById("btn-toggle-system");
-        
+
         if (systemIsRunning) {
-            btnToggle.style.background    = "rgba(238,125,119,0.12)";
-            btnToggle.style.color         = "var(--error)";
-            btnToggle.style.border        = "1px solid var(--error)";
-            btnToggle.style.boxShadow     = "none";
+            btnToggle.style.background = "rgba(238,125,119,0.12)";
+            btnToggle.style.color = "var(--error)";
+            btnToggle.style.border = "1px solid var(--error)";
+            btnToggle.style.boxShadow = "none";
             btnToggle.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px; font-variation-settings:'FILL' 1;">stop</span>STOP_SYSTEM`;
         } else {
-            btnToggle.style.background    = "var(--primary)";
-            btnToggle.style.color         = "#003a70";
-            btnToggle.style.border        = "none";
-            btnToggle.style.boxShadow     = "0 4px 0 0 rgba(0,60,120,0.3), 0 8px 15px rgba(0,0,0,0.2)";
+            btnToggle.style.background = "var(--primary)";
+            btnToggle.style.color = "#003a70";
+            btnToggle.style.border = "none";
+            btnToggle.style.boxShadow = "0 4px 0 0 rgba(0,60,120,0.3), 0 8px 15px rgba(0,0,0,0.2)";
             btnToggle.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px; font-variation-settings:'FILL' 1;">play_arrow</span>START_SYSTEM`;
         }
     }
@@ -130,36 +130,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Helper to set Hardware Status UI using CSS variable tokens
     const setHardwareStatus = (prefix, stateType) => {
-        const led    = document.getElementById(`led-${prefix}`);
+        const led = document.getElementById(`led-${prefix}`);
         const status = document.getElementById(`status-${prefix}`);
-        const icon   = document.getElementById(`icon-${prefix}`);
+        const icon = document.getElementById(`icon-${prefix}`);
 
         // Reset
-        led.className    = "led";
+        led.className = "led";
         status.style.color = "var(--text-2)";
-        icon.style.color   = "var(--text-2)";
+        icon.style.color = "var(--text-2)";
 
         if (stateType === "RUNNING") {
             led.classList.add("on-green", "pulse");
             status.style.color = "var(--tertiary)";
-            status.textContent  = "RUNNING";
-            icon.style.color    = "var(--tertiary)";
+            status.textContent = "RUNNING";
+            icon.style.color = "var(--tertiary)";
             icon.style.fontVariationSettings = "'FILL' 1";
         } else if (stateType === "STOPPED") {
-            status.textContent  = "STOPPED";
+            status.textContent = "STOPPED";
             icon.style.fontVariationSettings = "'FILL' 0";
             if (prefix.includes('motor')) icon.textContent = "pause_circle";
         } else if (stateType === "CLEAR") {
             led.classList.add("on-green");
             led.style.opacity = "0.4";
-            status.textContent  = "CLEAR";
-            icon.textContent    = "sensors";
+            status.textContent = "CLEAR";
+            icon.textContent = "sensors";
         } else if (stateType === "BLOCKED") {
             led.classList.add("on-red", "pulse");
             status.style.color = "var(--error)";
-            status.textContent  = "BLOCKED";
-            icon.style.color    = "var(--error)";
-            icon.textContent    = "sensors_off";
+            status.textContent = "BLOCKED";
+            icon.style.color = "var(--error)";
+            icon.textContent = "sensors_off";
         }
     };
 
@@ -185,15 +185,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // 3. Update Moisture Dial
             const moisturePercent = Math.round(data.environment.moisture);
-            const valMoisture     = document.getElementById("val-moisture");
+            const valMoisture = document.getElementById("val-moisture");
 
             if (moisturePercent > 13) {
-                valMoisture.textContent    = moisturePercent + "%";
-                valMoisture.style.color    = "var(--error)";
+                valMoisture.textContent = moisturePercent + "%";
+                valMoisture.style.color = "var(--error)";
                 setDialRotation("dial-moisture", "moisture-track", moisturePercent, 0, 100, "var(--error)");
             } else {
-                valMoisture.textContent    = moisturePercent + "%";
-                valMoisture.style.color    = "var(--tertiary)";
+                valMoisture.textContent = moisturePercent + "%";
+                valMoisture.style.color = "var(--tertiary)";
                 setDialRotation("dial-moisture", "moisture-track", moisturePercent, 0, 100, "var(--tertiary)");
             }
 

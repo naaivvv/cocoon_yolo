@@ -8,14 +8,14 @@ const int enA = 3;
 const int in1 = 4;
 const int in2 = 5;
 
-int conveyorSpeed = 255;
+int conveyorSpeed = 200;
 
 // Hopper Motor (L298N)
 const int enB = 6;
 const int in3 = 7;
 const int in4 = 8;
 
-const int HOPPER_SPEED = 178; // 70% speed
+const int HOPPER_SPEED = 255; // 70% speed
 
 // Sensors
 const int ir1Pin = 2; // Digital IR
@@ -62,7 +62,7 @@ float currentMoisturePercent = 0.0;
 
 // Non-blocking timers
 unsigned long previousTelemetryMillis = 0;
-const long telemetryInterval = 300; // 300ms (reduced from 500ms for faster updates)
+const long telemetryInterval = 500; // 300ms (reduced from 500ms for faster updates)
 
 unsigned long stateTimer = 0; // For states that need delays
 
