@@ -234,9 +234,9 @@ void runStateMachine() {
         stopHopper();
       }
 
-      // Guard: wait at least 1500ms before checking IR1 to allow the
+      // Guard: wait at least 1000ms before checking IR1 to allow the
       // previous cocoon to fully clear the sensor area when conveyor starts.
-      if (millis() - stateTimer > 1500 && ir1State == LOW) {
+      if (millis() - stateTimer > 1000 && ir1State == LOW) {
         delay(100); // Wait a tiny bit for cocoon to center
         if (hopperRunning) stopHopper(); // Failsafe
         stopConveyor(); // Stop conveyor
@@ -252,13 +252,13 @@ void runStateMachine() {
       // Sweep servo1 gently to 180 and back to push the bad cocoon
       sweepServo(servo1, 180, 0, 20);
       delay(500); 
-      sweepServo(servo1, 90, 150, 10);
+      sweepServo(servo1, 0, 180, 10);
       
       changeState(STATE_FEEDING); // Next cocoon
       break;
 
     case STATE_SORT_MOISTURE:
-      servo2.write(45); // Set blocking angle
+      servo2.write(150); // Set blocking angle
       startConveyor();   // Run conveyor to move cocoon to the block
       
       if (millis() - stateTimer > 2000) { // Give it 2 seconds to slide off
