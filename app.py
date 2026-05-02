@@ -25,7 +25,7 @@ camera = cv2.VideoCapture(1)
 
 # --- SERIAL COMMUNICATION SETUP ---
 COM_PORT = 'COM3'  # Windows usually uses COM ports
-BAUD_RATE = 9600
+BAUD_RATE = 115200
 
 latest_telemetry = {
     "metrics": {"total": 0, "good": 0, "defect": 0, "moisture_reject": 0, "fps": "0.0"},
@@ -36,6 +36,7 @@ serial_connected = False
 arduino = None
 defect_eval_sent = False
 last_eval_time = 0
+instant_yolo_trigger = False
 
 def serial_reader():
     global latest_telemetry, serial_connected, arduino
@@ -62,6 +63,10 @@ def serial_reader():
                     print(f"[SERIAL RAW] {line}")
                 elif line.startswith('[DEBUG]'):
                     print(line)
+                elif line == "TRIG":
+                    print("[INFO] Instant TRIG received from Arduino")
+                    global instant_yolo_trigger
+                    instant_yolo_trigger = True
                 
                 if line.startswith('{') and line.endswith('}'):
                     try:
@@ -114,11 +119,14 @@ def generate_frames():
                 results = model(frame, verbose=False, agnostic_nms=True)
                 annotated_frame = results[0].plot()
                 
-                global defect_eval_sent, last_eval_time, serial_connected, arduino
+                global defect_eval_sent, last_eval_time, serial_connected, arduino, instant_yolo_trigger
                 hardware_state = latest_telemetry.get("hardware", {})
                 if serial_connected and arduino is not None:
                     current_time = time.time()
-                    if hardware_state.get("ir1") == "BLOCKED":
+                    
+                    is_blocked = instant_yolo_trigger or (hardware_state.get("ir1") == "BLOCKED")
+                    
+                    if is_blocked:
                         if not defect_eval_sent or (current_time - last_eval_time > 0.5):
                             # Check if any detected box is classified as 'bad'
                             has_defect = False
@@ -140,6 +148,7 @@ def generate_frames():
                                 else:
                                     print(f"Sent YOLO result to Arduino: {cmd.strip().decode('utf-8')}")
                                 defect_eval_sent = True
+                                instant_yolo_trigger = False
                                 last_eval_time = current_time
                             except Exception as e:
                                 print(f"Failed to send command to Arduino: {e}")

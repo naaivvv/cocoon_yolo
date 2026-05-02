@@ -73,7 +73,7 @@ unsigned long defectProcessed = 0;
 unsigned long moistureProcessed = 0;
 
 void setup() {
-  Serial.begin(9600); // Increased baud rate to support faster telemetry
+  Serial.begin(115200); // Increased baud rate for faster telemetry and instant triggers
 
   // Conveyor pins
   pinMode(enA, OUTPUT);
@@ -124,19 +124,8 @@ void loop() {
 }
 
 void readSensors() {
-  // Simple software debounce for the IR sensor
-  static int lastIrRead = HIGH;
-  static unsigned long lastDebounceTime = 0;
-  int currentIrRead = digitalRead(ir1Pin);
-
-  if (currentIrRead != lastIrRead) {
-    lastDebounceTime = millis();
-  }
-
-  if ((millis() - lastDebounceTime) > 50) { // Must be stable for 50ms
-    ir1State = currentIrRead;
-  }
-  lastIrRead = currentIrRead;
+  // Direct read without software debounce for instant detection
+  ir1State = digitalRead(ir1Pin);
 
   float ambientTempC = mlx.readAmbientTempC();
   float objectTempC = mlx.readObjectTempC();
@@ -234,9 +223,12 @@ void runStateMachine() {
         stopHopper();
       }
 
-      // Guard: wait at least 1000ms before checking IR1 to allow the
+      // Guard: wait at least 250ms before checking IR1 to allow the
       // previous cocoon to fully clear the sensor area when conveyor starts.
-      if (millis() - stateTimer > 1000 && ir1State == LOW) {
+      if (millis() - stateTimer > 250 && ir1State == LOW) {
+        // Instant trigger to Python, bypassing JSON telemetry loop
+        Serial.println("TRIG");
+        
         delay(100); // Wait a tiny bit for cocoon to center
         if (hopperRunning) stopHopper(); // Failsafe
         stopConveyor(); // Stop conveyor
