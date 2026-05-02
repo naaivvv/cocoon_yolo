@@ -4,129 +4,85 @@ import json
 import os
 import cv2
 import numpy as np
+import serial
 from flask import Flask, jsonify, request, Response
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
-class MockHardware:
-    def __init__(self):
-        self.state = 'IDLE'
-        self.system_active = False
-        self.conveyor_running = False
-        self.hopper_running = False
-        self.ir1_state = "CLEAR" # CLEAR or BLOCKED
-        
-        self.total = 0
-        self.good = 0
-        self.defect = 0
-        self.moisture_reject = 0
-        
-        self.moisture = 10.0
-        self.servo1_angle = 180
-        self.servo2_angle = 90
-        
-        self.state_timer = 0
-        self.next_cocoon = None # 'GOOD', 'BAD', 'MOISTURE'
-        
-    def change_state(self, new_state):
-        self.state = new_state
-        self.state_timer = time.time()
-        print(f"\n[HARDWARE SIM] State changed to: {new_state}")
-        
-    def process(self):
-        if not self.system_active:
-            return
-            
-        current_time = time.time()
-        elapsed = current_time - self.state_timer
-        
-        if self.state == 'IDLE':
-            # Waiting for START command (handled by /api/command)
-            pass
-            
-        elif self.state == 'FEEDING':
-            if not self.hopper_running and not self.conveyor_running:
-                print("[HARDWARE SIM] Activating Hopper and Conveyor...")
-            self.hopper_running = True
-            self.conveyor_running = True
-            
-            # Note: We delay the change_state to MOVING_TO_CAM to give it some time in FEEDING visually
-            if elapsed > 0.5:
-                self.total += 1
-                self.ir1_state = "CLEAR"
-                self.change_state('MOVING_TO_CAM')
-            
-        elif self.state == 'MOVING_TO_CAM':
-            if self.hopper_running and elapsed > 1.0:
-                print("[HARDWARE SIM] Stopping Hopper...")
-                self.hopper_running = False
-                
-            # If the user has queued a cocoon, wait until 0.25s then trigger IR1 (simulating new 250ms guard)
-            if elapsed > 0.25 and self.ir1_state == "CLEAR":
-                if self.next_cocoon:
-                    print(f"[HARDWARE SIM] Cocoon detected by IR sensor! (Type: {self.next_cocoon})")
-                    self.ir1_state = "BLOCKED"
-                    self.hopper_running = False
-                    self.conveyor_running = False
-                    print("[HARDWARE SIM] Stopping Conveyor...")
-                    self.change_state('WAITING_CAM_RESULT')
-                
-        elif self.state == 'WAITING_CAM_RESULT':
-            # In simulation, we bypass YOLO and immediately resolve it instantly (simulating the new TRIG command)
-            if elapsed > 0.05:
-                if self.next_cocoon == 'BAD':
-                    print("[YOLO SIM] Detected class: 'bad' -> Sending DEFECT:YES")
-                    self.defect += 1
-                    self.change_state('SORT_DEFECT')
-                elif self.next_cocoon == 'MOISTURE':
-                    print("[YOLO SIM] Detected class: 'good' -> Sending DEFECT:NO")
-                    print("[HARDWARE SIM] High moisture detected!")
-                    self.moisture = 15.5 # Simulate high moisture
-                    self.moisture_reject += 1
-                    self.change_state('SORT_MOISTURE')
-                elif self.next_cocoon == 'GOOD':
-                    print("[YOLO SIM] Detected class: 'good' -> Sending DEFECT:NO")
-                    print("[HARDWARE SIM] Moisture OK.")
-                    self.moisture = 10.0 # Simulate normal moisture
-                    self.good += 1
-                    self.change_state('MOVE_TO_END')
-                
-                self.next_cocoon = None # Consumed
-                self.ir1_state = "CLEAR"
-                
-        elif self.state == 'SORT_DEFECT':
-            if elapsed < 0.1:
-                print("[HARDWARE SIM] Sweeping Servo 1: 180 -> 0 -> 180 (Rejecting Defect)")
-            if elapsed > 1.5:
-                self.change_state('FEEDING')
-            
-        elif self.state == 'SORT_MOISTURE':
-            if elapsed < 0.1:
-                print("[HARDWARE SIM] Servo 2 moving to 150 degrees (Blocking Moisture)")
-                self.conveyor_running = True
-            
-            if elapsed > 2.0:
-                print("[HARDWARE SIM] Servo 2 moving back to 180 degrees")
-                self.conveyor_running = False
-                self.change_state('FEEDING')
-                
-        elif self.state == 'MOVE_TO_END':
-            if elapsed < 0.1:
-                self.conveyor_running = True
-                print("[HARDWARE SIM] Conveyor running to drop good cocoon at end...")
-            if elapsed > 2.0:
-                self.conveyor_running = False
-                self.change_state('FEEDING')
+# --- SERIAL COMMUNICATION SETUP ---
+COM_PORT = 'COM3'
+BAUD_RATE = 115200
 
-hardware = MockHardware()
+latest_telemetry = {
+    "metrics": {"total": 0, "good": 0, "defect": 0, "moisture_reject": 0, "fps": "SIM"},
+    "hardware": {"motorA": "STOPPED", "hopper": "STOPPED", "ir1": "CLEAR"},
+    "environment": {"moisture": 0}
+}
 
-def hardware_loop():
+serial_connected = False
+arduino = None
+next_cocoon = None # 'GOOD', 'BAD', 'MOISTURE'
+
+def serial_reader():
+    global latest_telemetry, serial_connected, arduino, next_cocoon
+    
     while True:
-        hardware.process()
-        time.sleep(0.1)
+        if not serial_connected:
+            try:
+                arduino = serial.Serial(COM_PORT, BAUD_RATE, timeout=1)
+                serial_connected = True
+                print(f"\n[INFO] Successfully connected to Arduino on {COM_PORT} (SIMULATION MODE)")
+                time.sleep(2)
+                arduino.write(b"RESET\n")
+            except serial.SerialException:
+                serial_connected = False
+                time.sleep(2)
+                continue
 
-# Start hardware simulation thread
-threading.Thread(target=hardware_loop, daemon=True).start()
+        try:
+            if arduino and arduino.in_waiting > 0:
+                line = arduino.readline().decode('utf-8', errors='replace').strip()
+                
+                # Check for instant trigger from firmware_sim.ino
+                if line == "TRIG":
+                    print("[INFO] Instant TRIG received from Arduino (simulated IR block)")
+                    
+                    if next_cocoon == 'BAD':
+                        print("[YOLO SIM] Replying DEFECT:YES")
+                        arduino.write(b"DEFECT:YES\n")
+                    else:
+                        # For GOOD and MOISTURE, YOLO says NO DEFECT
+                        print("[YOLO SIM] Replying DEFECT:NO")
+                        arduino.write(b"DEFECT:NO\n")
+                    
+                    # Consume the queued cocoon
+                    next_cocoon = None
+                    continue
+                
+                if line.startswith('[DEBUG]'):
+                    print(line)
+                
+                if line.startswith('{') and line.endswith('}'):
+                    try:
+                        parsed_data = json.loads(line)
+                        for key, value in parsed_data.items():
+                            if isinstance(value, dict) and key in latest_telemetry:
+                                latest_telemetry[key].update(value)
+                            else:
+                                latest_telemetry[key] = value
+                    except json.JSONDecodeError:
+                        pass
+        except serial.SerialException:
+            serial_connected = False
+            if arduino:
+                arduino.close()
+            arduino = None
+            time.sleep(2)
+        except Exception as e:
+            time.sleep(1)
+
+# Start serial thread
+threading.Thread(target=serial_reader, daemon=True).start()
 
 # --- Flask Endpoints ---
 
@@ -135,17 +91,21 @@ def index():
     return app.send_static_file('index.html')
 
 def generate_mock_frames():
-    # Simulate a 10 FPS camera stream
+    # Simulate a 10 FPS camera stream for the dashboard
     while True:
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         
-        # Draw some text overlay
-        cv2.putText(frame, "SIMULATION MODE", (150, 200), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+        cv2.putText(frame, "HARDWARE-IN-THE-LOOP SIMULATION", (60, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
         
-        if hardware.next_cocoon:
-            cv2.putText(frame, f"Queued: {hardware.next_cocoon}", (150, 260), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        if next_cocoon:
+            cv2.putText(frame, f"Queued: {next_cocoon}", (150, 260), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        else:
+            cv2.putText(frame, f"Waiting for input...", (150, 260), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 1)
         
-        cv2.putText(frame, f"State: {hardware.state}", (150, 320), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+        # Show real physical state
+        hw_state = latest_telemetry["hardware"]
+        state_str = f"M1: {hw_state['motorA']} | M2: {hw_state['hopper']} | IR: {hw_state['ir1']}"
+        cv2.putText(frame, state_str, (80, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
         
         ret, buffer = cv2.imencode('.jpg', frame)
         frame_bytes = buffer.tobytes()
@@ -159,95 +119,77 @@ def video_feed():
 
 @app.route('/api/telemetry')
 def telemetry():
-    return jsonify({
-        "metrics": {
-            "total": hardware.total,
-            "good": hardware.good,
-            "defect": hardware.defect,
-            "moisture_reject": hardware.moisture_reject,
-            "fps": "10.0"
-        },
-        "hardware": {
-            "motorA": "RUNNING" if hardware.conveyor_running else "STOPPED",
-            "hopper": "RUNNING" if hardware.hopper_running else "STOPPED",
-            "ir1": hardware.ir1_state
-        },
-        "environment": {
-            "moisture": hardware.moisture
-        }
-    })
+    # Append SIM fps
+    latest_telemetry["metrics"]["fps"] = "SIM"
+    return jsonify(latest_telemetry)
 
 @app.route('/api/command', methods=['POST'])
 def command():
     action = request.json.get('action', '')
-    if action == 'start':
-        hardware.system_active = True
-        print("\n[API] Received START command")
-        if hardware.state == 'IDLE':
-            hardware.change_state('FEEDING')
-        return jsonify({"status": "success", "message": "START sent"})
-    elif action == 'stop':
-        hardware.system_active = False
-        hardware.conveyor_running = False
-        hardware.hopper_running = False
-        print("\n[API] Received STOP command")
-        hardware.change_state('IDLE')
-        return jsonify({"status": "success", "message": "STOP sent"})
-    elif action.startswith('SPEED:'):
-        print(f"\n[API] Received {action} command")
-        return jsonify({"status": "success", "message": f"{action} sent"})
-    return jsonify({"status": "error", "message": "Invalid action"}), 400
+    if serial_connected and arduino:
+        if action == 'start':
+            arduino.write(b"START\n")
+            return jsonify({"status": "success"})
+        elif action == 'stop':
+            arduino.write(b"STOP\n")
+            return jsonify({"status": "success"})
+        elif action.startswith('SPEED:'):
+            arduino.write(f"{action}\n".encode('utf-8'))
+            return jsonify({"status": "success"})
+    return jsonify({"status": "error", "message": "Serial not connected"}), 503
 
 # --- Interactive CLI Loop ---
 
 def interactive_loop():
-    time.sleep(1) # Give Flask a moment to print its startup messages
-    print("\n" + "="*50)
-    print(" COCOON SORTING INTERACTIVE SIMULATOR ")
-    print("="*50)
+    time.sleep(1) # Wait for startup prints
+    print("\n" + "="*60)
+    print(" HARDWARE-IN-THE-LOOP SIMULATOR ")
+    print("="*60)
     print("Ensure you open the Dashboard at http://localhost:5000")
+    print("Make sure firmware_sim.ino is uploaded to the Arduino.")
     print("Commands:")
-    print("  1 - Insert GOOD Cocoon")
-    print("  2 - Insert BAD (Defect) Cocoon")
-    print("  3 - Insert HIGH MOISTURE Cocoon")
+    print("  1 - Insert GOOD Cocoon (Tests normal flow)")
+    print("  2 - Insert BAD (Defect) Cocoon (Tests Servo 1)")
+    print("  3 - Insert HIGH MOISTURE Cocoon (Tests Servo 2)")
     print("  q - Quit Simulator")
-    print("="*50)
+    print("="*60)
+    
+    global next_cocoon
     
     while True:
         cmd = input("\nEnter command (1/2/3/q): ").strip().lower()
         if cmd == 'q':
             print("Exiting simulator...")
             os._exit(0)
-        elif cmd == '1':
-            if not hardware.system_active:
-                print(">>> System is STOPPED. Start from the dashboard first!")
-            else:
-                hardware.next_cocoon = 'GOOD'
-                print(">>> Queued GOOD cocoon.")
+            
+        if not serial_connected or not arduino:
+            print(">>> ERROR: Arduino is not connected!")
+            continue
+            
+        if cmd == '1':
+            next_cocoon = 'GOOD'
+            arduino.write(b"SIM:MOISTURE:10.0\n")
+            arduino.write(b"SIM:DROP\n")
+            print(">>> Queued GOOD cocoon -> Sending SIM:DROP to physical Arduino.")
         elif cmd == '2':
-            if not hardware.system_active:
-                print(">>> System is STOPPED. Start from the dashboard first!")
-            else:
-                hardware.next_cocoon = 'BAD'
-                print(">>> Queued BAD cocoon.")
+            next_cocoon = 'BAD'
+            arduino.write(b"SIM:MOISTURE:10.0\n")
+            arduino.write(b"SIM:DROP\n")
+            print(">>> Queued BAD cocoon -> Sending SIM:DROP to physical Arduino.")
         elif cmd == '3':
-            if not hardware.system_active:
-                print(">>> System is STOPPED. Start from the dashboard first!")
-            else:
-                hardware.next_cocoon = 'MOISTURE'
-                print(">>> Queued MOISTURE cocoon.")
+            next_cocoon = 'MOISTURE'
+            arduino.write(b"SIM:MOISTURE:15.5\n")
+            arduino.write(b"SIM:DROP\n")
+            print(">>> Queued MOISTURE cocoon -> Sending SIM:DROP to physical Arduino.")
         else:
             print("Invalid command. Use 1, 2, 3, or q.")
 
 if __name__ == "__main__":
     import logging
-    # Suppress werkzeug logging for cleaner interactive CLI
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)
     
-    # Run interactive loop in a background thread so Flask can run on main thread
     cli_thread = threading.Thread(target=interactive_loop, daemon=True)
     cli_thread.start()
     
-    # Run Flask
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
