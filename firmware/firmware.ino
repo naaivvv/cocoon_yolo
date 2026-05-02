@@ -62,7 +62,7 @@ float currentMoisturePercent = 0.0;
 
 // Non-blocking timers
 unsigned long previousTelemetryMillis = 0;
-const long telemetryInterval = 500; // 500ms
+const long telemetryInterval = 50; // 50ms (reduced from 500ms for faster updates)
 
 unsigned long stateTimer = 0; // For states that need delays
 
@@ -73,7 +73,7 @@ unsigned long defectProcessed = 0;
 unsigned long moistureProcessed = 0;
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(9600); // Increased baud rate to support faster telemetry
 
   // Conveyor pins
   pinMode(enA, OUTPUT);
@@ -104,7 +104,7 @@ void setup() {
   
   // Set default servo positions
   servo1.write(180);
-  servo2.write(180);
+  servo2.write(90);
 
   Serial.println("[DEBUG] System Initialized");
 }
@@ -250,9 +250,9 @@ void runStateMachine() {
 
     case STATE_SORT_DEFECT:
       // Sweep servo1 gently to 180 and back to push the bad cocoon
-      sweepServo(servo1, 180, 0, 10);
+      sweepServo(servo1, 180, 0, 20);
       delay(500); 
-      sweepServo(servo1, 0, 180, 10);
+      sweepServo(servo1, 90, 150, 10);
       
       changeState(STATE_FEEDING); // Next cocoon
       break;

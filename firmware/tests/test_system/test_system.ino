@@ -30,7 +30,7 @@ int ir1State = HIGH;
 float currentMoisturePercent = 0.0;
 
 unsigned long previousTelemetryMillis = 0;
-const long telemetryInterval = 500;
+const long telemetryInterval = 50; // 50ms (reduced from 500ms)
 
 float calculateMoisture(float objectTempC, float ambientTempC) {
   float tempDiff = ambientTempC - objectTempC;
@@ -41,7 +41,7 @@ float calculateMoisture(float objectTempC, float ambientTempC) {
 }
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(9600); // Increased baud rate
   
   pinMode(enA, OUTPUT);
   pinMode(in1, OUTPUT);

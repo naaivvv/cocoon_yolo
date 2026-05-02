@@ -252,7 +252,7 @@ The Flask backend (or any serial terminal) can send these commands to the Arduin
 | `Could not connect to Arduino on COM3` | Check the correct COM port in Device Manager and update `COM_PORT` in `app.py` |
 | Camera feed shows "STREAM OFFLINE" | Ensure your webcam is connected and not used by another app |
 | Dashboard shows `CONN_LOST` | Verify the Flask server is running on port 5000 |
-| Arduino serial output is garbled | Confirm baud rate is `115200` in both `firmware.ino` and `app.py` |
+| Arduino serial output is garbled | Confirm baud rate is `9600` in both `firmware.ino` and `app.py` |
 | `cv2` import error | Run `pip install opencv-python` |
 | `Failed to load cocoon_model.pt` | Ensure `cocoon_model.pt` is in the project root directory |
 | Low FPS / Laggy stream | YOLO inference is CPU/GPU intensive; ensure high-performance mode or a dedicated GPU |
