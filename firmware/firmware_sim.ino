@@ -290,7 +290,7 @@ void runStateMachine() {
         startConveyor();   // Run conveyor to move cocoon to the block
       }
       
-      if (millis() - stateTimer > 3000) { // Give it 3 seconds to slide off
+      if (millis() - stateTimer > 4000) { // Give it 4 seconds to slide off
         stopConveyor();
         sweepServo(servo2, 160, 90, 10); // Reset servo back to neutral gently
         changeState(STATE_FEEDING); // Next cocoon
