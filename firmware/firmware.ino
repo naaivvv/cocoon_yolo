@@ -15,7 +15,7 @@ const int enB = 6;
 const int in3 = 7;
 const int in4 = 8;
 
-const int HOPPER_SPEED = 255; // 70% speed
+const int HOPPER_SPEED = 255; // 100% speed
 
 // Sensors
 const int ir1Pin = 2; // Digital IR
@@ -242,7 +242,7 @@ void runStateMachine() {
 
     case STATE_SORT_DEFECT:
       // Sweep servo1 gently to 180 and back to push the bad cocoon
-      sweepServo(servo1, 180, 0, 20);
+      sweepServo(servo1, 180, 0, 15);
       delay(500); 
       sweepServo(servo1, 0, 180, 10);
       
@@ -250,12 +250,14 @@ void runStateMachine() {
       break;
 
     case STATE_SORT_MOISTURE:
-      servo2.write(150); // Set blocking angle
-      startConveyor();   // Run conveyor to move cocoon to the block
+      if (!conveyorRunning) {
+        sweepServo(servo2, 90, 160, 10); // Set blocking angle gently
+        startConveyor();   // Run conveyor to move cocoon to the block
+      }
       
-      if (millis() - stateTimer > 2000) { // Give it 2 seconds to slide off
+      if (millis() - stateTimer > 3000) { // Give it 3 seconds to slide off
         stopConveyor();
-        servo2.write(180); // Reset servo back to neutral
+        sweepServo(servo2, 160, 90, 10); // Reset servo back to neutral gently
         changeState(STATE_FEEDING); // Next cocoon
       }
       break;
