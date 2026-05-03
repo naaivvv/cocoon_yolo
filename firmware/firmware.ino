@@ -65,6 +65,7 @@ unsigned long previousTelemetryMillis = 0;
 const long telemetryInterval = 500; // 300ms (reduced from 500ms for faster updates)
 
 unsigned long stateTimer = 0; // For states that need delays
+unsigned long irLowStartTime = 0; // For IR debounce
 
 // Mock counters for JSON payload
 unsigned long totalProcessed = 0;
@@ -225,14 +226,25 @@ void runStateMachine() {
 
       // Guard: wait at least 250ms before checking IR1 to allow the
       // previous cocoon to fully clear the sensor area when conveyor starts.
-      if (millis() - stateTimer > 250 && ir1State == LOW) {
-        // Instant trigger to Python, bypassing JSON telemetry loop
-        Serial.println("TRIG");
-        
-        delay(100); // Wait a tiny bit for cocoon to center
-        if (hopperRunning) stopHopper(); // Failsafe
-        stopConveyor(); // Stop conveyor
-        changeState(STATE_WAITING_CAM_RESULT);
+      if (millis() - stateTimer > 250) {
+        if (ir1State == LOW) {
+          if (irLowStartTime == 0) {
+            irLowStartTime = millis(); // Start debounce timer
+          } else if (millis() - irLowStartTime >= 50) { // 50ms consecutive LOW
+            // Instant trigger to Python, bypassing JSON telemetry loop
+            Serial.println("TRIG");
+            
+            delay(100); // Wait a tiny bit for cocoon to center
+            if (hopperRunning) stopHopper(); // Failsafe
+            stopConveyor(); // Stop conveyor
+            irLowStartTime = 0; // Reset for next time
+            changeState(STATE_WAITING_CAM_RESULT);
+          }
+        } else {
+          irLowStartTime = 0; // Reset if sensor goes HIGH (clear) again
+        }
+      } else {
+        irLowStartTime = 0; // Ensure it's reset during the guard period
       }
       break;
 

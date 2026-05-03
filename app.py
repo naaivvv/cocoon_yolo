@@ -61,14 +61,15 @@ def serial_reader():
                 line = arduino.readline().decode('utf-8', errors='replace').strip()
                 if DEBUG_MODE and line:
                     print(f"[SERIAL RAW] {line}")
-                elif line.startswith('[DEBUG]'):
-                    print(line)
+                
+                if line.startswith('[DEBUG]'):
+                    if not DEBUG_MODE:
+                        print(line)
                 elif line == "TRIG":
                     print("[INFO] Instant TRIG received from Arduino")
                     global instant_yolo_trigger
                     instant_yolo_trigger = True
-                
-                if line.startswith('{') and line.endswith('}'):
+                elif line.startswith('{') and line.endswith('}'):
                     try:
                         parsed_data = json.loads(line)
                         # Deep merge: update nested dicts instead of replacing them
@@ -114,10 +115,17 @@ def generate_frames():
 
             # YOLO object detection
             if model is not None:
-                # Use agnostic_nms=True to prevent overlapping bounding boxes
-                # of different classes (e.g. good and bad) on the same object.
-                results = model(frame, verbose=False, agnostic_nms=True)
-                annotated_frame = results[0].plot()
+                # Use conf=0.4 as requested and agnostic_nms=True
+                results = model(frame, verbose=False, agnostic_nms=True, conf=0.4)
+                
+                # Filter for the single highest-confidence bounding box
+                if len(results[0].boxes) > 0:
+                    best_idx = int(results[0].boxes.conf.argmax())
+                    best_result = results[0][best_idx]
+                else:
+                    best_result = results[0] # empty result
+                    
+                annotated_frame = best_result.plot()
                 
                 global defect_eval_sent, last_eval_time, serial_connected, arduino, instant_yolo_trigger
                 hardware_state = latest_telemetry.get("hardware", {})
@@ -128,17 +136,18 @@ def generate_frames():
                     
                     if is_blocked:
                         if not defect_eval_sent or (current_time - last_eval_time > 0.5):
-                            # Check if any detected box is classified as 'bad'
+                            # Check the single best detected box
                             has_defect = False
-                            boxes = results[0].boxes
-                            if boxes is not None and len(boxes) > 0:
-                                for box in boxes:
-                                    class_id = int(box.cls[0])
-                                    class_name = model.names[class_id].lower()
-                                    print(f"[YOLO] Detected class: '{class_name}'")
-                                    if class_name == "bad":
-                                        has_defect = True
-                                        break
+                            boxes = best_result.boxes
+                            if len(boxes) > 0:
+                                class_id = int(boxes[0].cls[0])
+                                class_name = model.names[class_id].lower()
+                                conf_score = float(boxes[0].conf[0])
+                                print(f"[YOLO] Detected best class: '{class_name}' (conf: {conf_score:.2f})")
+                                if class_name == "bad":
+                                    has_defect = True
+                            else:
+                                print(f"[YOLO] No objects detected above 0.4 confidence.")
                             
                             cmd = b"DEFECT:YES\n" if has_defect else b"DEFECT:NO\n"
                             try:
