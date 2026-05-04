@@ -51,18 +51,24 @@ enum SystemState {
 // Forward declaration to fix Arduino IDE compilation error
 void changeState(SystemState newState);
 
-SystemState currentState = STATE_IDLE;
+volatile SystemState currentState = STATE_IDLE;
 bool systemActive = false;
 
 // --- State Variables ---
-bool conveyorRunning = false;
+volatile bool conveyorRunning = false;
 bool hopperRunning = false;
 int ir1State = HIGH; // Assuming HIGH is clear, LOW is object detected
 float currentMoisturePercent = 0.0;
 
+// Hardware interrupt flag for instant IR detection
+volatile bool irInterruptFlag = false;
+
 // Non-blocking timers
 unsigned long previousTelemetryMillis = 0;
-const long telemetryInterval = 500; // 300ms (reduced from 500ms for faster updates)
+const long telemetryInterval = 500; // 500ms is plenty for dashboard updates
+
+unsigned long previousSensorMillis = 0;
+const long sensorInterval = 500; // MLX90614 temperature read interval
 
 unsigned long stateTimer = 0; // For states that need delays
 unsigned long irLowStartTime = 0; // For IR debounce
@@ -73,8 +79,22 @@ unsigned long goodProcessed = 0;
 unsigned long defectProcessed = 0;
 unsigned long moistureProcessed = 0;
 
+// ISR: fires on FALLING edge of IR sensor (object detected)
+// Stops motor pins directly from interrupt — works even during I2C blocking
+void irFallingISR() {
+  if (conveyorRunning && currentState == STATE_MOVING_TO_CAM) {
+    // Instant motor stop — digitalWrite is safe in AVR ISR
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 0);
+    conveyorRunning = false;
+  }
+  irInterruptFlag = true;
+}
+
 void setup() {
-  Serial.begin(115200); // Increased baud rate for faster telemetry and instant triggers
+  Serial.begin(115200);
+  Serial.setTimeout(10); // Prevent readStringUntil blocking for 1000ms default
 
   // Conveyor pins
   pinMode(enA, OUTPUT);
@@ -95,6 +115,9 @@ void setup() {
   // Sensor pins
   pinMode(ir1Pin, INPUT);
 
+  // Attach hardware interrupt on pin 2 (INT0) for instant IR detection
+  attachInterrupt(digitalPinToInterrupt(ir1Pin), irFallingISR, FALLING);
+
   if (!mlx.begin()) {
     Serial.println("[ERROR] MLX90614 not found. Check wiring (SDA->A4, SCL->A5).");
   }
@@ -113,21 +136,27 @@ void setup() {
 void loop() {
   unsigned long currentMillis = millis();
 
-  readSensors();
+  // FAST PATH: IR sensor read every loop (~4 microseconds)
+  ir1State = digitalRead(ir1Pin);
+
   processSerialCommands();
   runStateMachine();
 
-  // Send telemetry every 500ms
+  // SLOW PATH: Temperature/moisture only every 500ms (I2C takes ~60-100ms)
+  if (currentMillis - previousSensorMillis >= sensorInterval) {
+    previousSensorMillis = currentMillis;
+    readTemperatureSensor();
+  }
+
+  // Send telemetry at a reasonable rate
   if (currentMillis - previousTelemetryMillis >= telemetryInterval) {
     previousTelemetryMillis = currentMillis;
     sendTelemetryJSON();
   }
 }
 
-void readSensors() {
-  // Direct read without software debounce for instant detection
-  ir1State = digitalRead(ir1Pin);
-
+void readTemperatureSensor() {
+  // MLX90614 I2C reads (~30-50ms each) — only called every 500ms
   float ambientTempC = mlx.readAmbientTempC();
   float objectTempC = mlx.readObjectTempC();
   currentMoisturePercent = calculateMoisture(objectTempC, ambientTempC);
@@ -158,17 +187,14 @@ void processSerialCommands() {
       Serial.println("[DEBUG] Command: RESET - Counters zeroed");
     } else if (command.equalsIgnoreCase("DEFECT:YES") && currentState == STATE_WAITING_CAM_RESULT) {
       Serial.println("[DEBUG] Command: DEFECT:YES");
-      defectProcessed++;
       changeState(STATE_SORT_DEFECT);
     } else if (command.equalsIgnoreCase("DEFECT:NO") && currentState == STATE_WAITING_CAM_RESULT) {
       Serial.println("[DEBUG] Command: DEFECT:NO");
       if (currentMoisturePercent > 13.0) {
         Serial.println("[DEBUG] High moisture detected");
-        moistureProcessed++;
         changeState(STATE_SORT_MOISTURE);
       } else {
         Serial.println("[DEBUG] Moisture OK");
-        goodProcessed++;
         changeState(STATE_MOVE_TO_END);
       }
     } else if (command.startsWith("SPEED:")) {
@@ -214,37 +240,45 @@ void runStateMachine() {
       // Activate hopper and conveyor together
       startHopper();
       startConveyor();
-      totalProcessed++;
       changeState(STATE_MOVING_TO_CAM); // stateTimer resets here
       break;
 
     case STATE_MOVING_TO_CAM:
-      // Hopper runs for exactly 1000ms
-      if (hopperRunning && millis() - stateTimer > 1000) {
+      // Hopper runs for exactly 2000ms
+      if (hopperRunning && millis() - stateTimer > 2000) {
         stopHopper();
       }
 
-      // Guard: wait at least 250ms before checking IR1 to allow the
-      // previous cocoon to fully clear the sensor area when conveyor starts.
+      // Guard: wait at least 250ms before acting on IR to let previous cocoon clear
       if (millis() - stateTimer > 250) {
-        if (ir1State == LOW) {
+        // CHECK 1: Hardware interrupt already fired (instant, even during I2C)
+        if (irInterruptFlag) {
+          // Motor was already stopped by ISR — just finalize
+          stopConveyor(); // Ensure full stop (ISR may not have cleared PWM fully)
+          if (hopperRunning) stopHopper();
+          Serial.println("TRIG");
+          irInterruptFlag = false;
+          irLowStartTime = 0;
+          changeState(STATE_WAITING_CAM_RESULT);
+        }
+        // CHECK 2: Polling fallback (for cases where interrupt was missed)
+        else if (ir1State == LOW) {
           if (irLowStartTime == 0) {
-            irLowStartTime = millis(); // Start debounce timer
-          } else if (millis() - irLowStartTime >= 50) { // 50ms consecutive LOW
-            // Instant trigger to Python, bypassing JSON telemetry loop
+            irLowStartTime = millis();
+          } else if (millis() - irLowStartTime >= 30) {
+            stopConveyor();
+            if (hopperRunning) stopHopper();
             Serial.println("TRIG");
-            
-            delay(100); // Wait a tiny bit for cocoon to center
-            if (hopperRunning) stopHopper(); // Failsafe
-            stopConveyor(); // Stop conveyor
-            irLowStartTime = 0; // Reset for next time
+            irLowStartTime = 0;
             changeState(STATE_WAITING_CAM_RESULT);
           }
         } else {
-          irLowStartTime = 0; // Reset if sensor goes HIGH (clear) again
+          irLowStartTime = 0;
         }
       } else {
-        irLowStartTime = 0; // Ensure it's reset during the guard period
+        // During guard period, clear any spurious interrupt flags
+        irInterruptFlag = false;
+        irLowStartTime = 0;
       }
       break;
 
@@ -258,6 +292,8 @@ void runStateMachine() {
       delay(500); 
       sweepServo(servo1, 0, 180, 10);
       
+      defectProcessed++;
+      totalProcessed++;
       changeState(STATE_FEEDING); // Next cocoon
       break;
 
@@ -270,6 +306,8 @@ void runStateMachine() {
       if (millis() - stateTimer > 4000) { // Give it 4 seconds to slide off
         stopConveyor();
         sweepServo(servo2, 160, 90, 10); // Reset servo back to neutral gently
+        moistureProcessed++;
+        totalProcessed++;
         changeState(STATE_FEEDING); // Next cocoon
       }
       break;
@@ -279,6 +317,8 @@ void runStateMachine() {
       // Move for 2 seconds to drop good cocoon at the end
       if (millis() - stateTimer > 2000) {
         stopConveyor();
+        goodProcessed++;
+        totalProcessed++;
         changeState(STATE_FEEDING); // Next cocoon
       }
       break;
@@ -328,20 +368,16 @@ void stopHopper() {
 }
 
 void sendTelemetryJSON() {
-  String motorStatus = conveyorRunning ? "RUNNING" : "STOPPED";
-  String ir1Status = (ir1State == LOW) ? "BLOCKED" : "CLEAR";
-  String hopperStatus = hopperRunning ? "RUNNING" : "STOPPED";
-  
-  Serial.print("{\"metrics\":{");
-  Serial.print("\"total\":"); Serial.print(totalProcessed); Serial.print(",");
-  Serial.print("\"good\":"); Serial.print(goodProcessed); Serial.print(",");
-  Serial.print("\"defect\":"); Serial.print(defectProcessed); Serial.print(",");
-  Serial.print("\"moisture_reject\":"); Serial.print(moistureProcessed);
-  Serial.print("},\"hardware\":{");
-  Serial.print("\"motorA\":\""); Serial.print(motorStatus); Serial.print("\",");
-  Serial.print("\"hopper\":\""); Serial.print(hopperStatus); Serial.print("\",");
-  Serial.print("\"ir1\":\""); Serial.print(ir1Status); Serial.print("\"");
-  Serial.print("},\"environment\":{");
-  Serial.print("\"moisture\":"); Serial.print(currentMoisturePercent);
-  Serial.println("}}");
+  // Single-buffer approach: build entire JSON in one shot to reduce serial overhead
+  char buf[256];
+  snprintf(buf, sizeof(buf),
+    "{\"metrics\":{\"total\":%lu,\"good\":%lu,\"defect\":%lu,\"moisture_reject\":%lu},"
+    "\"hardware\":{\"motorA\":\"%s\",\"hopper\":\"%s\",\"ir1\":\"%s\"},"
+    "\"environment\":{\"moisture\":%d}}",
+    totalProcessed, goodProcessed, defectProcessed, moistureProcessed,
+    conveyorRunning ? "RUNNING" : "STOPPED",
+    hopperRunning ? "RUNNING" : "STOPPED",
+    (ir1State == LOW) ? "BLOCKED" : "CLEAR",
+    (int)currentMoisturePercent);
+  Serial.println(buf);
 }

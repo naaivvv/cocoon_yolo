@@ -37,6 +37,7 @@ arduino = None
 defect_eval_sent = False
 last_eval_time = 0
 instant_yolo_trigger = False
+trig_received_time = 0  # Timestamp when TRIG was received
 
 def serial_reader():
     global latest_telemetry, serial_connected, arduino
@@ -67,8 +68,10 @@ def serial_reader():
                         print(line)
                 elif line == "TRIG":
                     print("[INFO] Instant TRIG received from Arduino")
-                    global instant_yolo_trigger
+                    global instant_yolo_trigger, trig_received_time
                     instant_yolo_trigger = True
+                    trig_received_time = time.time()
+                    defect_eval_sent = False  # Reset for new TRIG cycle
                 elif line.startswith('{') and line.endswith('}'):
                     try:
                         parsed_data = json.loads(line)
@@ -127,16 +130,20 @@ def generate_frames():
                     
                 annotated_frame = best_result.plot()
                 
-                global defect_eval_sent, last_eval_time, serial_connected, arduino, instant_yolo_trigger
-                hardware_state = latest_telemetry.get("hardware", {})
+                global defect_eval_sent, last_eval_time, serial_connected, arduino, instant_yolo_trigger, trig_received_time
                 if serial_connected and arduino is not None:
                     current_time = time.time()
-                    
-                    is_blocked = instant_yolo_trigger or (hardware_state.get("ir1") == "BLOCKED")
-                    
-                    if is_blocked:
-                        if not defect_eval_sent or (current_time - last_eval_time > 0.5):
-                            # Check the single best detected box
+                    ir1_status = latest_telemetry.get("hardware", {}).get("ir1", "CLEAR")
+
+                    if instant_yolo_trigger and not defect_eval_sent:
+                        time_since_trig = current_time - trig_received_time
+
+                        # Wait 500ms for camera to stabilize after conveyor stops
+                        if time_since_trig < 0.5:
+                            pass  # Still waiting for camera to get a clean frame
+
+                        # After 500ms: confirm cocoon is still in front of IR sensor
+                        elif ir1_status == "BLOCKED":
                             has_defect = False
                             boxes = best_result.boxes
                             if len(boxes) > 0:
@@ -148,23 +155,31 @@ def generate_frames():
                                     has_defect = True
                             else:
                                 print(f"[YOLO] No objects detected above 0.4 confidence.")
-                            
+
                             cmd = b"DEFECT:YES\n" if has_defect else b"DEFECT:NO\n"
                             try:
                                 arduino.write(cmd)
-                                if DEBUG_MODE:
-                                    print(f"[DEBUG] Sent YOLO result to Arduino: {cmd.strip().decode('utf-8')} for IR1=BLOCKED")
-                                else:
-                                    print(f"Sent YOLO result to Arduino: {cmd.strip().decode('utf-8')}")
+                                print(f"Sent YOLO result to Arduino: {cmd.strip().decode('utf-8')}")
                                 defect_eval_sent = True
                                 instant_yolo_trigger = False
                                 last_eval_time = current_time
                             except Exception as e:
                                 print(f"Failed to send command to Arduino: {e}")
-                    
-                    elif hardware_state.get("ir1") == "CLEAR":
-                        if defect_eval_sent and DEBUG_MODE:
-                            print("[DEBUG] IR1 is now CLEAR. Resetting defect_eval_sent to False.")
+
+                        # IR went CLEAR before we could evaluate — cocoon overshot
+                        else:
+                            print(f"[WARN] IR1 is CLEAR after TRIG — cocoon may have overshot sensor. Sending DEFECT:NO as fallback.")
+                            try:
+                                arduino.write(b"DEFECT:NO\n")
+                                print("Sent fallback DEFECT:NO (cocoon not in sensor zone)")
+                                defect_eval_sent = True
+                                instant_yolo_trigger = False
+                                last_eval_time = current_time
+                            except Exception as e:
+                                print(f"Failed to send fallback command: {e}")
+
+                    # Reset for next TRIG cycle when ir1 clears
+                    elif defect_eval_sent and ir1_status == "CLEAR":
                         defect_eval_sent = False
 
             else:
